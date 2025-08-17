@@ -1,0 +1,531 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Cost Optimization
+
+This case study explores comprehensive strategies for optimizing data infrastructure costs while maintaining performance and reliability. It covers cloud cost management, resource optimization, automated scaling, and financial governance for data engineering platforms.
+
+## Cost Optimization Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Cost Monitoring"
+        CM1[Cost Tracking]
+        CM2[Budget Alerts]
+        CM3[Usage Analytics]
+        CM4[Cost Attribution]
+    end
+    
+    subgraph "Resource Optimization"
+        RO1[Right-sizing]
+        RO2[Reserved Instances]
+        RO3[Spot Instances]
+        RO4[Auto-scaling]
+    end
+    
+    subgraph "Data Lifecycle Management"
+        DLM1[Hot Storage]
+        DLM2[Warm Storage]
+        DLM3[Cold Storage]
+        DLM4[Archive Storage]
+    end
+    
+    subgraph "Compute Optimization"
+        CO1[Serverless Functions]
+        CO2[Container Optimization]
+        CO3[Batch Processing]
+        CO4[Query Optimization]
+    end
+    
+    subgraph "Governance & Controls"
+        GC1[Cost Policies]
+        GC2[Resource Tagging]
+        GC3[Approval Workflows]
+        GC4[Chargeback]
+    end
+    
+    CM1 --> RO1
+    CM2 --> RO2
+    CM3 --> RO3
+    CM4 --> RO4
+    
+    RO1 --> DLM1
+    RO2 --> DLM2
+    RO3 --> DLM3
+    RO4 --> DLM4
+    
+    DLM1 --> CO1
+    DLM2 --> CO2
+    DLM3 --> CO3
+    DLM4 --> CO4
+    
+    CO1 --> GC1
+    CO2 --> GC2
+    CO3 --> GC3
+    CO4 --> GC4
+    
+    style CM1 fill:#e3f2fd
+    style RO1 fill:#e8f5e8
+    style DLM1 fill:#fff3e0
+    style CO1 fill:#f3e5f5
+    style GC1 fill:#fce4ec
+`} />
+
+## Cost Optimization Framework
+
+### Core Cost Management Components
+
+```python
+# Cost Optimization Framework
+import os
+import json
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass, field
+from enum import Enum
+import logging
+
+class ResourceType(Enum):
+    """Resource type enumeration"""
+    COMPUTE = "compute"
+    STORAGE = "storage"
+    DATABASE = "database"
+    ANALYTICS = "analytics"
+    SERVERLESS = "serverless"
+
+class OptimizationStrategy(Enum):
+    """Optimization strategy enumeration"""
+    RIGHT_SIZING = "right_sizing"
+    RESERVED_INSTANCES = "reserved_instances"
+    SPOT_INSTANCES = "spot_instances"
+    LIFECYCLE_MANAGEMENT = "lifecycle_management"
+
+@dataclass
+class CostMetrics:
+    """Cost metrics data structure"""
+    timestamp: datetime
+    resource_id: str
+    resource_type: ResourceType
+    current_cost: float
+    projected_cost: float
+    utilization_percent: float
+    region: str
+    tags: Dict[str, str] = field(default_factory=dict)
+
+@dataclass
+class OptimizationRecommendation:
+    """Cost optimization recommendation"""
+    recommendation_id: str
+    resource_id: str
+    strategy: OptimizationStrategy
+    current_cost: float
+    projected_savings: float
+    savings_percentage: float
+    implementation_effort: str
+    risk_level: str
+    description: str
+    action_items: List[str]
+
+class CostTracker:
+    """Cost tracking and monitoring"""
+    
+    def __init__(self):
+        self.cost_history: List[CostMetrics] = []
+        self.budget_alerts: Dict[str, float] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def track_resource_costs(self, resources: List[str]) -> List[CostMetrics]:
+        """Track costs for specified resources"""
+        cost_metrics = []
+        
+        for resource_id in resources:
+            metrics = self._collect_resource_cost_data(resource_id)
+            cost_metrics.append(metrics)
+            self.cost_history.append(metrics)
+        
+        if len(self.cost_history) > 1000:
+            self.cost_history = self.cost_history[-1000:]
+        
+        return cost_metrics
+    
+    def _collect_resource_cost_data(self, resource_id: str) -> CostMetrics:
+        """Collect cost data for a resource"""
+        resource_types = list(ResourceType)
+        resource_type = np.random.choice(resource_types)
+        
+        base_cost = np.random.uniform(10, 1000)
+        utilization = np.random.uniform(20, 95)
+        
+        return CostMetrics(
+            timestamp=datetime.now(),
+            resource_id=resource_id,
+            resource_type=resource_type,
+            current_cost=base_cost,
+            projected_cost=base_cost * 1.1,
+            utilization_percent=utilization,
+            region=np.random.choice(['us-east-1', 'us-west-2', 'eu-west-1']),
+            tags={
+                'environment': np.random.choice(['prod', 'staging', 'dev']),
+                'team': np.random.choice(['data-eng', 'analytics', 'ml']),
+                'project': f"project-{np.random.randint(1, 10)}"
+            }
+        )
+    
+    def set_budget_alert(self, resource_pattern: str, threshold_amount: float):
+        """Set budget alert for resource pattern"""
+        self.budget_alerts[resource_pattern] = threshold_amount
+        self.logger.info(f"Set budget alert: {resource_pattern} -> ${threshold_amount}")
+    
+    def check_budget_alerts(self) -> List[Dict[str, Any]]:
+        """Check for budget alert violations"""
+        alerts = []
+        
+        cost_by_pattern = {}
+        for metrics in self.cost_history[-100:]:
+            for pattern in self.budget_alerts:
+                if pattern in metrics.resource_id or pattern == 'all':
+                    if pattern not in cost_by_pattern:
+                        cost_by_pattern[pattern] = 0
+                    cost_by_pattern[pattern] += metrics.current_cost
+        
+        for pattern, total_cost in cost_by_pattern.items():
+            threshold = self.budget_alerts.get(pattern, float('inf'))
+            if total_cost > threshold:
+                alerts.append({
+                    'pattern': pattern,
+                    'current_cost': total_cost,
+                    'threshold': threshold,
+                    'overage': total_cost - threshold,
+                    'overage_percentage': ((total_cost - threshold) / threshold) * 100
+                })
+        
+        return alerts
+    
+    def get_cost_summary(self, days: int = 30) -> Dict[str, Any]:
+        """Get cost summary for specified period"""
+        cutoff_date = datetime.now() - timedelta(days=days)
+        recent_costs = [m for m in self.cost_history if m.timestamp >= cutoff_date]
+        
+        if not recent_costs:
+            return {'error': 'No cost data available'}
+        
+        total_cost = sum(m.current_cost for m in recent_costs)
+        avg_utilization = np.mean([m.utilization_percent for m in recent_costs])
+        
+        cost_by_type = {}
+        for metrics in recent_costs:
+            rt = metrics.resource_type.value
+            if rt not in cost_by_type:
+                cost_by_type[rt] = 0
+            cost_by_type[rt] += metrics.current_cost
+        
+        return {
+            'period_days': days,
+            'total_cost': total_cost,
+            'average_utilization': avg_utilization,
+            'cost_by_resource_type': cost_by_type,
+            'total_resources': len(set(m.resource_id for m in recent_costs))
+        }
+
+class CostOptimizer:
+    """Cost optimization recommendation engine"""
+    
+    def __init__(self, cost_tracker: CostTracker):
+        self.cost_tracker = cost_tracker
+        self.logger = logging.getLogger(__name__)
+    
+    def analyze_optimization_opportunities(self) -> List[OptimizationRecommendation]:
+        """Analyze and generate optimization recommendations"""
+        recommendations = []
+        
+        recent_costs = self.cost_tracker.cost_history[-100:]
+        
+        resource_costs = {}
+        for metrics in recent_costs:
+            if metrics.resource_id not in resource_costs:
+                resource_costs[metrics.resource_id] = []
+            resource_costs[metrics.resource_id].append(metrics)
+        
+        for resource_id, cost_list in resource_costs.items():
+            resource_recommendations = self._analyze_resource_optimization(resource_id, cost_list)
+            recommendations.extend(resource_recommendations)
+        
+        recommendations.sort(key=lambda x: x.projected_savings, reverse=True)
+        return recommendations
+    
+    def _analyze_resource_optimization(self, resource_id: str, 
+                                     cost_metrics: List[CostMetrics]) -> List[OptimizationRecommendation]:
+        """Analyze optimization opportunities for a specific resource"""
+        recommendations = []
+        
+        if not cost_metrics:
+            return recommendations
+        
+        latest_metrics = cost_metrics[-1]
+        avg_utilization = np.mean([m.utilization_percent for m in cost_metrics])
+        avg_cost = np.mean([m.current_cost for m in cost_metrics])
+        
+        # Right-sizing recommendation
+        if avg_utilization < 30:
+            savings = avg_cost * 0.3
+            recommendations.append(OptimizationRecommendation(
+                recommendation_id=f"rightsizing_{resource_id}_{len(recommendations)}",
+                resource_id=resource_id,
+                strategy=OptimizationStrategy.RIGHT_SIZING,
+                current_cost=avg_cost,
+                projected_savings=savings,
+                savings_percentage=30.0,
+                implementation_effort="medium",
+                risk_level="low",
+                description=f"Resource has low utilization ({avg_utilization:.1f}%). Consider downsizing.",
+                action_items=[
+                    "Analyze peak usage patterns",
+                    "Test with smaller instance size",
+                    "Monitor performance after downsizing"
+                ]
+            ))
+        
+        # Reserved instance recommendation
+        if avg_cost > 100 and latest_metrics.resource_type in [ResourceType.COMPUTE, ResourceType.DATABASE]:
+            savings = avg_cost * 0.4
+            recommendations.append(OptimizationRecommendation(
+                recommendation_id=f"reserved_{resource_id}_{len(recommendations)}",
+                resource_id=resource_id,
+                strategy=OptimizationStrategy.RESERVED_INSTANCES,
+                current_cost=avg_cost,
+                projected_savings=savings,
+                savings_percentage=40.0,
+                implementation_effort="low",
+                risk_level="low",
+                description=f"High-cost resource suitable for reserved instance pricing.",
+                action_items=[
+                    "Evaluate usage consistency",
+                    "Purchase 1-year reserved instance",
+                    "Monitor savings realization"
+                ]
+            ))
+        
+        # Spot instance recommendation
+        if (latest_metrics.resource_type == ResourceType.COMPUTE and 
+            'batch' in resource_id.lower()):
+            savings = avg_cost * 0.7
+            recommendations.append(OptimizationRecommendation(
+                recommendation_id=f"spot_{resource_id}_{len(recommendations)}",
+                resource_id=resource_id,
+                strategy=OptimizationStrategy.SPOT_INSTANCES,
+                current_cost=avg_cost,
+                projected_savings=savings,
+                savings_percentage=70.0,
+                implementation_effort="high",
+                risk_level="medium",
+                description=f"Batch workload suitable for spot instances.",
+                action_items=[
+                    "Implement spot instance handling",
+                    "Add checkpointing for fault tolerance",
+                    "Test spot instance interruption handling"
+                ]
+            ))
+        
+        # Storage lifecycle recommendation
+        if latest_metrics.resource_type == ResourceType.STORAGE:
+            savings = avg_cost * 0.5
+            recommendations.append(OptimizationRecommendation(
+                recommendation_id=f"lifecycle_{resource_id}_{len(recommendations)}",
+                resource_id=resource_id,
+                strategy=OptimizationStrategy.LIFECYCLE_MANAGEMENT,
+                current_cost=avg_cost,
+                projected_savings=savings,
+                savings_percentage=50.0,
+                implementation_effort="medium",
+                risk_level="low",
+                description=f"Storage resource can benefit from lifecycle policies.",
+                action_items=[
+                    "Analyze data access patterns",
+                    "Implement tiered storage lifecycle",
+                    "Set up automated archiving"
+                ]
+            ))
+        
+        return recommendations
+
+class CostOptimizationOrchestrator:
+    """Main cost optimization orchestration system"""
+    
+    def __init__(self):
+        self.cost_tracker = CostTracker()
+        self.optimizer = CostOptimizer(self.cost_tracker)
+        self.logger = logging.getLogger(__name__)
+    
+    def initialize_cost_optimization(self):
+        """Initialize cost optimization system"""
+        self.cost_tracker.set_budget_alert('all', 10000)  # $10k monthly budget
+        self.cost_tracker.set_budget_alert('prod', 5000)   # $5k for production
+        self.logger.info("Cost optimization system initialized")
+    
+    def run_cost_optimization_cycle(self, resources: List[str]) -> Dict[str, Any]:
+        """Run complete cost optimization cycle"""
+        
+        # Track current costs
+        cost_metrics = self.cost_tracker.track_resource_costs(resources)
+        
+        # Check budget alerts
+        budget_alerts = self.cost_tracker.check_budget_alerts()
+        
+        # Generate optimization recommendations
+        recommendations = self.optimizer.analyze_optimization_opportunities()
+        
+        # Calculate potential savings
+        total_potential_savings = sum(r.projected_savings for r in recommendations)
+        
+        return {
+            'timestamp': datetime.now().isoformat(),
+            'resources_analyzed': len(resources),
+            'total_current_cost': sum(m.current_cost for m in cost_metrics),
+            'total_potential_savings': total_potential_savings,
+            'budget_alerts': len(budget_alerts),
+            'optimization_recommendations': len(recommendations),
+            'top_recommendations': [
+                {
+                    'strategy': r.strategy.value,
+                    'resource_id': r.resource_id,
+                    'projected_savings': r.projected_savings,
+                    'savings_percentage': r.savings_percentage,
+                    'implementation_effort': r.implementation_effort,
+                    'risk_level': r.risk_level,
+                    'description': r.description
+                } for r in recommendations[:5]
+            ]
+        }
+    
+    def get_cost_optimization_dashboard(self) -> Dict[str, Any]:
+        """Get comprehensive cost optimization dashboard"""
+        cost_summary = self.cost_tracker.get_cost_summary()
+        
+        return {
+            'cost_summary': cost_summary,
+            'dashboard_generated_at': datetime.now().isoformat()
+        }
+
+# Example usage
+def example_cost_optimization():
+    """Example of comprehensive cost optimization"""
+    
+    print("=== COST OPTIMIZATION CASE STUDY ===")
+    
+    # Initialize cost optimization orchestrator
+    orchestrator = CostOptimizationOrchestrator()
+    orchestrator.initialize_cost_optimization()
+    
+    print("Cost optimization system initialized")
+    
+    # Sample resources
+    resources = [
+        'compute-prod-web-01', 'compute-prod-api-02', 'database-prod-main',
+        'storage-prod-data-lake', 'analytics-prod-warehouse', 'batch-processing-cluster'
+    ]
+    
+    # Run optimization cycle
+    results = orchestrator.run_cost_optimization_cycle(resources)
+    
+    print(f"\n=== OPTIMIZATION RESULTS ===")
+    print(f"Resources analyzed: {results['resources_analyzed']}")
+    print(f"Total current cost: ${results['total_current_cost']:.2f}")
+    print(f"Total potential savings: ${results['total_potential_savings']:.2f}")
+    print(f"Budget alerts: {results['budget_alerts']}")
+    print(f"Optimization recommendations: {results['optimization_recommendations']}")
+    
+    print(f"\nTop Recommendations:")
+    for i, rec in enumerate(results['top_recommendations'], 1):
+        print(f"  {i}. {rec['strategy']}: ${rec['projected_savings']:.2f} savings ({rec['savings_percentage']:.1f}%)")
+        print(f"     Resource: {rec['resource_id']}")
+        print(f"     Effort: {rec['implementation_effort']}, Risk: {rec['risk_level']}")
+    
+    # Get dashboard
+    dashboard = orchestrator.get_cost_optimization_dashboard()
+    
+    if 'error' not in dashboard['cost_summary']:
+        cost_summary = dashboard['cost_summary']
+        print(f"\n=== COST SUMMARY ===")
+        print(f"Total cost (30 days): ${cost_summary['total_cost']:.2f}")
+        print(f"Average utilization: {cost_summary['average_utilization']:.1f}%")
+        print(f"Total resources: {cost_summary['total_resources']}")
+    
+    return orchestrator
+
+# orchestrator = example_cost_optimization()
+```
+
+## Cost Optimization Best Practices
+
+### Resource Right-Sizing
+
+1. **Continuous Monitoring**
+   - Track CPU, memory, and storage utilization
+   - Identify over-provisioned resources
+   - Implement automated right-sizing recommendations
+   - Regular performance testing after changes
+
+2. **Reserved Instance Strategy**
+   - Analyze usage patterns for consistent workloads
+   - Purchase reserved instances for predictable resources
+   - Mix reserved and on-demand for flexibility
+   - Monitor reservation utilization and coverage
+
+### Storage Cost Optimization
+
+1. **Data Lifecycle Management**
+   - Implement automated tiering policies
+   - Move infrequently accessed data to cheaper storage
+   - Archive old data to long-term storage
+   - Delete unnecessary data and backups
+
+2. **Compression and Deduplication**
+   - Use efficient data formats (Parquet, ORC)
+   - Implement data compression strategies
+   - Remove duplicate data across systems
+   - Optimize data partitioning schemes
+
+### Compute Cost Management
+
+1. **Spot Instance Utilization**
+   - Use spot instances for fault-tolerant workloads
+   - Implement checkpointing for long-running jobs
+   - Mix spot and on-demand instances
+   - Monitor spot price trends and availability
+
+2. **Serverless Adoption**
+   - Use serverless for event-driven workloads
+   - Pay only for actual execution time
+   - Automatic scaling without over-provisioning
+   - Reduced operational overhead
+
+## Summary
+
+Cost Optimization provides:
+
+- **Comprehensive Cost Tracking** - Real-time cost monitoring and budget alerts
+- **Intelligent Recommendations** - Automated optimization suggestions with ROI analysis
+- **Lifecycle Management** - Automated data tiering and archiving policies
+- **Governance Controls** - Policy enforcement and compliance monitoring
+
+Key components:
+- Cost tracking and budget management system
+- Optimization recommendation engine
+- Resource lifecycle management
+- Financial governance and policy enforcement
+
+---
+
+**Congratulations!** You have completed the comprehensive Data Engineering book covering all essential topics from architecture to case studies.
+
+The book now includes:
+- **Data Architecture** - Modern patterns and cloud strategies
+- **Data Storage** - Lakes, warehouses, and object storage
+- **Data Ingestion** - ETL/ELT patterns and real-time processing
+- **Stream Processing** - Kafka, Spark, and event-driven architectures
+- **Data Processing Frameworks** - Comprehensive processing solutions
+- **Data Governance** - Quality, lineage, cataloging, and security
+- **Monitoring & Observability** - Complete monitoring stack
+- **DevOps for Data Engineering** - CI/CD, IaC, and testing
+- **Case Studies** - Real-world implementations and best practices

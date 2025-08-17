@@ -1,0 +1,804 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Lineage
+
+Data lineage is the process of tracking data from its origin through all transformations and movements until it reaches its final destination. It provides visibility into data flow, dependencies, and transformations, enabling better data governance, debugging, and impact analysis.
+
+## Data Lineage Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Database A]
+        DS2[API Service]
+        DS3[File System]
+        DS4[Stream Source]
+    end
+    
+    subgraph "Transformation Layer"
+        T1[ETL Process 1]
+        T2[Data Cleaning]
+        T3[Aggregation]
+        T4[ML Feature Engineering]
+    end
+    
+    subgraph "Storage Layer"
+        S1[Data Lake]
+        S2[Data Warehouse]
+        S3[Feature Store]
+        S4[Cache Layer]
+    end
+    
+    subgraph "Consumption Layer"
+        C1[Analytics Dashboard]
+        C2[ML Models]
+        C3[Reports]
+        C4[APIs]
+    end
+    
+    DS1 --> T1
+    DS2 --> T1
+    DS3 --> T2
+    DS4 --> T3
+    
+    T1 --> S1
+    T2 --> S2
+    T3 --> S1
+    T4 --> S3
+    
+    S1 --> T4
+    S2 --> C1
+    S3 --> C2
+    S1 --> C3
+    S2 --> C4
+    
+    style DS1 fill:#e3f2fd
+    style T1 fill:#e8f5e8
+    style S1 fill:#fff3e0
+    style C1 fill:#f3e5f5
+`} />
+
+## Comprehensive Data Lineage System
+
+### Lineage Tracking Framework
+
+```python
+# Data Lineage Tracking System
+import uuid
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Set
+from dataclasses import dataclass, field
+from enum import Enum
+import json
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import defaultdict
+import logging
+
+class LineageNodeType(Enum):
+    """Types of nodes in data lineage graph"""
+    SOURCE = "source"
+    TRANSFORMATION = "transformation"
+    STORAGE = "storage"
+    CONSUMPTION = "consumption"
+
+class TransformationType(Enum):
+    """Types of data transformations"""
+    FILTER = "filter"
+    AGGREGATE = "aggregate"
+    JOIN = "join"
+    UNION = "union"
+    PIVOT = "pivot"
+    CUSTOM = "custom"
+    ML_FEATURE = "ml_feature"
+    VALIDATION = "validation"
+
+@dataclass
+class LineageNode:
+    """Node in data lineage graph"""
+    id: str
+    name: str
+    node_type: LineageNodeType
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'node_type': self.node_type.value,
+            'metadata': self.metadata,
+            'created_at': self.created_at.isoformat()
+        }
+
+@dataclass
+class LineageEdge:
+    """Edge in data lineage graph representing data flow"""
+    source_id: str
+    target_id: str
+    transformation_type: Optional[TransformationType] = None
+    transformation_details: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'source_id': self.source_id,
+            'target_id': self.target_id,
+            'transformation_type': self.transformation_type.value if self.transformation_type else None,
+            'transformation_details': self.transformation_details,
+            'created_at': self.created_at.isoformat()
+        }
+
+class DataLineageTracker:
+    """Comprehensive data lineage tracking system"""
+    
+    def __init__(self):
+        self.nodes: Dict[str, LineageNode] = {}
+        self.edges: List[LineageEdge] = []
+        self.graph = nx.DiGraph()
+        self.logger = logging.getLogger(__name__)
+    
+    def add_node(self, node: LineageNode) -> str:
+        """Add node to lineage graph"""
+        self.nodes[node.id] = node
+        self.graph.add_node(node.id, **node.to_dict())
+        self.logger.info(f"Added lineage node: {node.name} ({node.id})")
+        return node.id
+    
+    def add_edge(self, edge: LineageEdge) -> None:
+        """Add edge to lineage graph"""
+        if edge.source_id not in self.nodes or edge.target_id not in self.nodes:
+            raise ValueError("Source and target nodes must exist before adding edge")
+        
+        self.edges.append(edge)
+        self.graph.add_edge(
+            edge.source_id, 
+            edge.target_id, 
+            **edge.to_dict()
+        )
+        self.logger.info(f"Added lineage edge: {edge.source_id} -> {edge.target_id}")
+    
+    def create_source_node(self, name: str, source_type: str, 
+                          connection_info: Dict[str, Any]) -> str:
+        """Create a data source node"""
+        node_id = str(uuid.uuid4())
+        node = LineageNode(
+            id=node_id,
+            name=name,
+            node_type=LineageNodeType.SOURCE,
+            metadata={
+                'source_type': source_type,
+                'connection_info': connection_info,
+                'schema': connection_info.get('schema', {}),
+                'location': connection_info.get('location', '')
+            }
+        )
+        return self.add_node(node)
+    
+    def create_transformation_node(self, name: str, transformation_type: TransformationType,
+                                 transformation_logic: str, input_schema: Dict = None,
+                                 output_schema: Dict = None) -> str:
+        """Create a transformation node"""
+        node_id = str(uuid.uuid4())
+        node = LineageNode(
+            id=node_id,
+            name=name,
+            node_type=LineageNodeType.TRANSFORMATION,
+            metadata={
+                'transformation_type': transformation_type.value,
+                'transformation_logic': transformation_logic,
+                'input_schema': input_schema or {},
+                'output_schema': output_schema or {},
+                'processing_engine': 'python'  # Could be spark, dbt, etc.
+            }
+        )
+        return self.add_node(node)
+    
+    def create_storage_node(self, name: str, storage_type: str, 
+                          location: str, schema: Dict = None) -> str:
+        """Create a storage node"""
+        node_id = str(uuid.uuid4())
+        node = LineageNode(
+            id=node_id,
+            name=name,
+            node_type=LineageNodeType.STORAGE,
+            metadata={
+                'storage_type': storage_type,
+                'location': location,
+                'schema': schema or {},
+                'partitioning': {},
+                'compression': 'none'
+            }
+        )
+        return self.add_node(node)
+    
+    def create_consumption_node(self, name: str, consumption_type: str,
+                              endpoint: str) -> str:
+        """Create a consumption node"""
+        node_id = str(uuid.uuid4())
+        node = LineageNode(
+            id=node_id,
+            name=name,
+            node_type=LineageNodeType.CONSUMPTION,
+            metadata={
+                'consumption_type': consumption_type,
+                'endpoint': endpoint,
+                'consumers': [],
+                'access_patterns': {}
+            }
+        )
+        return self.add_node(node)
+    
+    def track_transformation(self, source_ids: List[str], target_id: str,
+                           transformation_type: TransformationType,
+                           transformation_details: Dict[str, Any]) -> None:
+        """Track a data transformation"""
+        for source_id in source_ids:
+            edge = LineageEdge(
+                source_id=source_id,
+                target_id=target_id,
+                transformation_type=transformation_type,
+                transformation_details=transformation_details
+            )
+            self.add_edge(edge)
+    
+    def get_upstream_lineage(self, node_id: str, max_depth: int = None) -> Dict[str, Any]:
+        """Get upstream lineage for a node"""
+        if node_id not in self.nodes:
+            raise ValueError(f"Node {node_id} not found")
+        
+        upstream_nodes = []
+        visited = set()
+        
+        def traverse_upstream(current_id: str, depth: int = 0):
+            if max_depth and depth > max_depth:
+                return
+            if current_id in visited:
+                return
+            
+            visited.add(current_id)
+            predecessors = list(self.graph.predecessors(current_id))
+            
+            for pred_id in predecessors:
+                edge_data = self.graph.get_edge_data(pred_id, current_id)
+                upstream_nodes.append({
+                    'node': self.nodes[pred_id].to_dict(),
+                    'edge': edge_data,
+                    'depth': depth
+                })
+                traverse_upstream(pred_id, depth + 1)
+        
+        traverse_upstream(node_id)
+        
+        return {
+            'target_node': self.nodes[node_id].to_dict(),
+            'upstream_nodes': upstream_nodes,
+            'total_upstream': len(upstream_nodes)
+        }
+    
+    def get_downstream_lineage(self, node_id: str, max_depth: int = None) -> Dict[str, Any]:
+        """Get downstream lineage for a node"""
+        if node_id not in self.nodes:
+            raise ValueError(f"Node {node_id} not found")
+        
+        downstream_nodes = []
+        visited = set()
+        
+        def traverse_downstream(current_id: str, depth: int = 0):
+            if max_depth and depth > max_depth:
+                return
+            if current_id in visited:
+                return
+            
+            visited.add(current_id)
+            successors = list(self.graph.successors(current_id))
+            
+            for succ_id in successors:
+                edge_data = self.graph.get_edge_data(current_id, succ_id)
+                downstream_nodes.append({
+                    'node': self.nodes[succ_id].to_dict(),
+                    'edge': edge_data,
+                    'depth': depth
+                })
+                traverse_downstream(succ_id, depth + 1)
+        
+        traverse_downstream(node_id)
+        
+        return {
+            'source_node': self.nodes[node_id].to_dict(),
+            'downstream_nodes': downstream_nodes,
+            'total_downstream': len(downstream_nodes)
+        }
+    
+    def get_column_lineage(self, node_id: str, column_name: str) -> Dict[str, Any]:
+        """Get column-level lineage"""
+        upstream = self.get_upstream_lineage(node_id)
+        column_lineage = []
+        
+        for upstream_node in upstream['upstream_nodes']:
+            node_data = upstream_node['node']
+            edge_data = upstream_node['edge']
+            
+            # Check if transformation details include column mapping
+            transformation_details = edge_data.get('transformation_details', {})
+            column_mapping = transformation_details.get('column_mapping', {})
+            
+            if column_name in column_mapping:
+                source_columns = column_mapping[column_name]
+                column_lineage.append({
+                    'source_node': node_data,
+                    'source_columns': source_columns,
+                    'transformation': transformation_details.get('logic', ''),
+                    'depth': upstream_node['depth']
+                })
+        
+        return {
+            'target_column': column_name,
+            'target_node': self.nodes[node_id].to_dict(),
+            'column_lineage': column_lineage
+        }
+    
+    def analyze_impact(self, node_id: str) -> Dict[str, Any]:
+        """Analyze impact of changes to a node"""
+        downstream = self.get_downstream_lineage(node_id)
+        
+        impact_analysis = {
+            'source_node': self.nodes[node_id].to_dict(),
+            'directly_impacted': 0,
+            'total_impacted': len(downstream['downstream_nodes']),
+            'impacted_by_type': defaultdict(int),
+            'critical_paths': []
+        }
+        
+        # Analyze direct impacts
+        direct_successors = list(self.graph.successors(node_id))
+        impact_analysis['directly_impacted'] = len(direct_successors)
+        
+        # Group impacts by node type
+        for downstream_node in downstream['downstream_nodes']:
+            node_type = downstream_node['node']['node_type']
+            impact_analysis['impacted_by_type'][node_type] += 1
+        
+        # Find critical paths (paths to consumption nodes)
+        for downstream_node in downstream['downstream_nodes']:
+            if downstream_node['node']['node_type'] == LineageNodeType.CONSUMPTION.value:
+                path = nx.shortest_path(self.graph, node_id, downstream_node['node']['id'])
+                impact_analysis['critical_paths'].append({
+                    'target': downstream_node['node']['name'],
+                    'path_length': len(path) - 1,
+                    'path_nodes': [self.nodes[node_id].name for node_id in path]
+                })
+        
+        return impact_analysis
+    
+    def export_lineage(self, format: str = 'json') -> str:
+        """Export lineage graph in various formats"""
+        if format == 'json':
+            return json.dumps({
+                'nodes': [node.to_dict() for node in self.nodes.values()],
+                'edges': [edge.to_dict() for edge in self.edges],
+                'export_timestamp': datetime.now().isoformat()
+            }, indent=2)
+        
+        elif format == 'graphml':
+            # Export as GraphML for visualization tools
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.graphml', delete=False) as f:
+                nx.write_graphml(self.graph, f.name)
+                return f.name
+        
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+    
+    def visualize_lineage(self, node_id: str = None, max_depth: int = 3, 
+                         save_path: str = None) -> None:
+        """Visualize data lineage graph"""
+        if node_id:
+            # Create subgraph around specific node
+            upstream = self.get_upstream_lineage(node_id, max_depth)
+            downstream = self.get_downstream_lineage(node_id, max_depth)
+            
+            relevant_nodes = {node_id}
+            for upstream_node in upstream['upstream_nodes']:
+                relevant_nodes.add(upstream_node['node']['id'])
+            for downstream_node in downstream['downstream_nodes']:
+                relevant_nodes.add(downstream_node['node']['id'])
+            
+            subgraph = self.graph.subgraph(relevant_nodes)
+        else:
+            subgraph = self.graph
+        
+        plt.figure(figsize=(15, 10))
+        pos = nx.spring_layout(subgraph, k=2, iterations=50)
+        
+        # Color nodes by type
+        node_colors = []
+        for node_id in subgraph.nodes():
+            node_type = self.nodes[node_id].node_type
+            if node_type == LineageNodeType.SOURCE:
+                node_colors.append('#e3f2fd')
+            elif node_type == LineageNodeType.TRANSFORMATION:
+                node_colors.append('#e8f5e8')
+            elif node_type == LineageNodeType.STORAGE:
+                node_colors.append('#fff3e0')
+            else:  # CONSUMPTION
+                node_colors.append('#f3e5f5')
+        
+        # Draw graph
+        nx.draw(subgraph, pos, 
+                node_color=node_colors,
+                node_size=3000,
+                font_size=8,
+                font_weight='bold',
+                arrows=True,
+                arrowsize=20,
+                edge_color='gray',
+                with_labels=True,
+                labels={node_id: self.nodes[node_id].name for node_id in subgraph.nodes()})
+        
+        plt.title("Data Lineage Graph", size=16, weight='bold')
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        else:
+            plt.show()
+
+# Example usage and testing
+def example_lineage_tracking():
+    """Example of comprehensive data lineage tracking"""
+    
+    # Initialize lineage tracker
+    tracker = DataLineageTracker()
+    
+    # Create source nodes
+    customer_db = tracker.create_source_node(
+        name="Customer Database",
+        source_type="postgresql",
+        connection_info={
+            'host': 'localhost',
+            'database': 'customers',
+            'table': 'customer_profiles',
+            'schema': {
+                'customer_id': 'int',
+                'name': 'string',
+                'email': 'string',
+                'registration_date': 'datetime'
+            }
+        }
+    )
+    
+    orders_api = tracker.create_source_node(
+        name="Orders API",
+        source_type="rest_api",
+        connection_info={
+            'endpoint': 'https://api.company.com/orders',
+            'schema': {
+                'order_id': 'int',
+                'customer_id': 'int',
+                'amount': 'decimal',
+                'order_date': 'datetime'
+            }
+        }
+    )
+    
+    # Create transformation nodes
+    data_cleaning = tracker.create_transformation_node(
+        name="Data Cleaning",
+        transformation_type=TransformationType.VALIDATION,
+        transformation_logic="Remove duplicates, validate email formats, handle nulls",
+        input_schema={'customer_id': 'int', 'name': 'string', 'email': 'string'},
+        output_schema={'customer_id': 'int', 'name': 'string', 'email': 'string', 'is_valid': 'boolean'}
+    )
+    
+    customer_orders_join = tracker.create_transformation_node(
+        name="Customer Orders Join",
+        transformation_type=TransformationType.JOIN,
+        transformation_logic="JOIN customers ON orders.customer_id = customers.customer_id",
+        input_schema={'customers': {}, 'orders': {}},
+        output_schema={'customer_id': 'int', 'name': 'string', 'order_amount': 'decimal'}
+    )
+    
+    # Create storage nodes
+    clean_data_lake = tracker.create_storage_node(
+        name="Clean Data Lake",
+        storage_type="s3",
+        location="s3://data-lake/clean/customers/",
+        schema={'customer_id': 'int', 'name': 'string', 'email': 'string', 'is_valid': 'boolean'}
+    )
+    
+    analytics_warehouse = tracker.create_storage_node(
+        name="Analytics Warehouse",
+        storage_type="redshift",
+        location="analytics.customer_orders",
+        schema={'customer_id': 'int', 'name': 'string', 'total_orders': 'int', 'total_amount': 'decimal'}
+    )
+    
+    # Create consumption nodes
+    dashboard = tracker.create_consumption_node(
+        name="Customer Analytics Dashboard",
+        consumption_type="tableau",
+        endpoint="https://tableau.company.com/customer-analytics"
+    )
+    
+    # Track transformations
+    tracker.track_transformation(
+        source_ids=[customer_db],
+        target_id=data_cleaning,
+        transformation_type=TransformationType.VALIDATION,
+        transformation_details={
+            'logic': 'Data validation and cleaning pipeline',
+            'column_mapping': {
+                'customer_id': ['customer_id'],
+                'name': ['name'],
+                'email': ['email'],
+                'is_valid': ['email']  # derived column
+            }
+        }
+    )
+    
+    tracker.track_transformation(
+        source_ids=[data_cleaning, orders_api],
+        target_id=customer_orders_join,
+        transformation_type=TransformationType.JOIN,
+        transformation_details={
+            'logic': 'Inner join on customer_id',
+            'join_keys': ['customer_id'],
+            'column_mapping': {
+                'customer_id': ['customer_id'],
+                'name': ['name'],
+                'order_amount': ['amount']
+            }
+        }
+    )
+    
+    tracker.track_transformation(
+        source_ids=[data_cleaning],
+        target_id=clean_data_lake,
+        transformation_type=TransformationType.CUSTOM,
+        transformation_details={'logic': 'Store cleaned data in data lake'}
+    )
+    
+    tracker.track_transformation(
+        source_ids=[customer_orders_join],
+        target_id=analytics_warehouse,
+        transformation_type=TransformationType.AGGREGATE,
+        transformation_details={
+            'logic': 'Aggregate customer order metrics',
+            'aggregations': ['COUNT(orders)', 'SUM(amount)']
+        }
+    )
+    
+    tracker.track_transformation(
+        source_ids=[analytics_warehouse],
+        target_id=dashboard,
+        transformation_type=TransformationType.CUSTOM,
+        transformation_details={'logic': 'Dashboard visualization'}
+    )
+    
+    # Analyze lineage
+    print("=== UPSTREAM LINEAGE FOR DASHBOARD ===")
+    upstream = tracker.get_upstream_lineage(dashboard)
+    print(f"Total upstream nodes: {upstream['total_upstream']}")
+    
+    print("\n=== IMPACT ANALYSIS FOR CUSTOMER DATABASE ===")
+    impact = tracker.analyze_impact(customer_db)
+    print(f"Total impacted nodes: {impact['total_impacted']}")
+    print(f"Directly impacted: {impact['directly_impacted']}")
+    print(f"Critical paths: {len(impact['critical_paths'])}")
+    
+    print("\n=== COLUMN LINEAGE FOR customer_id ===")
+    column_lineage = tracker.get_column_lineage(analytics_warehouse, 'customer_id')
+    print(f"Column lineage depth: {len(column_lineage['column_lineage'])}")
+    
+    return tracker
+
+# tracker = example_lineage_tracking()
+```
+
+## Automated Lineage Collection
+
+### Pipeline Integration for Lineage Tracking
+
+```python
+# Automated lineage collection from data pipelines
+import inspect
+from functools import wraps
+from typing import Callable, Any
+import pandas as pd
+
+class LineageDecorator:
+    """Decorator for automatic lineage tracking"""
+    
+    def __init__(self, tracker: DataLineageTracker):
+        self.tracker = tracker
+    
+    def track_transformation(self, name: str, transformation_type: TransformationType,
+                           input_sources: List[str] = None, output_target: str = None):
+        """Decorator to automatically track transformations"""
+        
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                # Create transformation node
+                transformation_id = self.tracker.create_transformation_node(
+                    name=name,
+                    transformation_type=transformation_type,
+                    transformation_logic=inspect.getsource(func),
+                    input_schema={},  # Could be inferred from function signature
+                    output_schema={}
+                )
+                
+                # Execute function
+                result = func(*args, **kwargs)
+                
+                # Track lineage if sources and targets are provided
+                if input_sources:
+                    self.tracker.track_transformation(
+                        source_ids=input_sources,
+                        target_id=transformation_id,
+                        transformation_type=transformation_type,
+                        transformation_details={
+                            'function_name': func.__name__,
+                            'parameters': str(kwargs),
+                            'logic': f"Function: {func.__name__}"
+                        }
+                    )
+                
+                return result
+            return wrapper
+        return decorator
+
+class DataPipeline:
+    """Example data pipeline with automatic lineage tracking"""
+    
+    def __init__(self, lineage_tracker: DataLineageTracker):
+        self.tracker = lineage_tracker
+        self.lineage_decorator = LineageDecorator(lineage_tracker)
+        
+        # Create source nodes
+        self.raw_data_source = self.tracker.create_source_node(
+            name="Raw Data Source",
+            source_type="csv",
+            connection_info={'location': '/data/raw/customers.csv'}
+        )
+    
+    @LineageDecorator.track_transformation(
+        name="Data Validation",
+        transformation_type=TransformationType.VALIDATION
+    )
+    def validate_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate and clean input data"""
+        # Remove duplicates
+        df = df.drop_duplicates()
+        
+        # Validate email format
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        df['email_valid'] = df['email'].str.match(email_pattern, na=False)
+        
+        # Handle missing values
+        df['name'] = df['name'].fillna('Unknown')
+        
+        return df
+    
+    @LineageDecorator.track_transformation(
+        name="Feature Engineering",
+        transformation_type=TransformationType.ML_FEATURE
+    )
+    def create_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Create ML features"""
+        # Create age groups
+        df['age_group'] = pd.cut(df['age'], bins=[0, 25, 35, 50, 100], 
+                                labels=['Young', 'Adult', 'Middle', 'Senior'])
+        
+        # Create email domain feature
+        df['email_domain'] = df['email'].str.split('@').str[1]
+        
+        # Create customer lifetime value estimate
+        df['estimated_clv'] = df['total_orders'] * df['avg_order_value'] * 2.5
+        
+        return df
+    
+    def run_pipeline(self, input_data: pd.DataFrame) -> pd.DataFrame:
+        """Run complete data pipeline with lineage tracking"""
+        
+        # Step 1: Validate data
+        validated_data = self.validate_data(input_data)
+        
+        # Step 2: Create features
+        featured_data = self.create_features(validated_data)
+        
+        # Create final storage node
+        output_storage = self.tracker.create_storage_node(
+            name="Processed Customer Data",
+            storage_type="parquet",
+            location="/data/processed/customers.parquet"
+        )
+        
+        return featured_data
+
+# Example usage
+def automated_lineage_example():
+    """Example of automated lineage collection"""
+    
+    tracker = DataLineageTracker()
+    pipeline = DataPipeline(tracker)
+    
+    # Sample data
+    sample_data = pd.DataFrame({
+        'customer_id': [1, 2, 3, 4, 5],
+        'name': ['Alice', 'Bob', None, 'Diana', 'Eve'],
+        'email': ['alice@example.com', 'invalid-email', 'charlie@test.com', 
+                 'diana@company.org', 'eve@domain.net'],
+        'age': [25, 35, 45, 30, 55],
+        'total_orders': [10, 5, 20, 8, 15],
+        'avg_order_value': [50.0, 75.0, 40.0, 90.0, 60.0]
+    })
+    
+    # Run pipeline
+    result = pipeline.run_pipeline(sample_data)
+    
+    print("Pipeline completed with automatic lineage tracking")
+    print(f"Tracked {len(tracker.nodes)} nodes and {len(tracker.edges)} edges")
+    
+    return tracker, result
+
+# tracker, result = automated_lineage_example()
+```
+
+## Best Practices
+
+### Data Lineage Implementation Guidelines
+
+1. **Comprehensive Tracking**
+   - Track lineage at multiple levels (dataset, table, column)
+   - Include transformation logic and business context
+   - Capture both technical and business lineage
+
+2. **Automation**
+   - Integrate lineage tracking into data pipelines
+   - Use metadata extraction from processing engines
+   - Implement automatic discovery mechanisms
+
+3. **Visualization and Access**
+   - Provide intuitive lineage visualization tools
+   - Enable search and filtering capabilities
+   - Support impact analysis workflows
+
+4. **Governance Integration**
+   - Link lineage to data governance policies
+   - Support compliance and audit requirements
+   - Enable data stewardship workflows
+
+## Common Use Cases
+
+### Business Applications
+- **Impact Analysis** - Understand downstream effects of data changes
+- **Root Cause Analysis** - Trace data quality issues to their source
+- **Compliance Reporting** - Document data flow for regulatory requirements
+- **Data Discovery** - Help users find and understand data sources
+
+### Technical Benefits
+- **Debugging Support** - Quickly identify data pipeline issues
+- **Change Management** - Assess impact before making changes
+- **Documentation** - Automatic documentation of data flows
+- **Optimization** - Identify redundant or inefficient data paths
+
+## Summary
+
+Data Lineage provides:
+
+- **End-to-End Visibility** - Complete view of data flow and transformations
+- **Impact Analysis** - Understanding of change effects across the pipeline
+- **Automated Tracking** - Integration with data processing systems
+- **Governance Support** - Foundation for data governance and compliance
+
+Key components:
+- Lineage graph with nodes and edges
+- Transformation tracking and metadata
+- Impact analysis and visualization
+- Integration with data pipelines
+
+---
+
+**Next**: Learn about [Data Cataloging](/chapters/data-quality/data-cataloging) for organizing and discovering data assets.

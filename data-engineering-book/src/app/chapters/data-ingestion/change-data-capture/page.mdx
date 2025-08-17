@@ -1,0 +1,783 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Change Data Capture (CDC)
+
+Change Data Capture (CDC) is a technique used to identify and capture changes made to data in a database, enabling real-time data synchronization and streaming. CDC allows systems to efficiently track and propagate only the changed data rather than processing entire datasets.
+
+## CDC Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Source Database"
+        SD1[Application Writes]
+        SD2[Transaction Log]
+        SD3[Database Tables]
+    end
+    
+    subgraph "CDC System"
+        CDC1[Log Reader]
+        CDC2[Change Parser]
+        CDC3[Change Filter]
+        CDC4[Change Publisher]
+    end
+    
+    subgraph "Target Systems"
+        TS1[Data Warehouse]
+        TS2[Analytics Platform]
+        TS3[Search Index]
+        TS4[Cache Layer]
+    end
+    
+    SD1 --> SD2
+    SD1 --> SD3
+    SD2 --> CDC1
+    CDC1 --> CDC2
+    CDC2 --> CDC3
+    CDC3 --> CDC4
+    
+    CDC4 --> TS1
+    CDC4 --> TS2
+    CDC4 --> TS3
+    CDC4 --> TS4
+    
+    style CDC1 fill:#e3f2fd
+    style CDC2 fill:#e8f5e8
+    style CDC4 fill:#fff3e0
+`} />
+
+## Log-Based CDC Implementation
+
+### PostgreSQL CDC with Debezium
+
+```python
+# PostgreSQL CDC implementation using Debezium concepts
+import psycopg2
+import json
+from typing import Dict, List, Any, Optional, Callable
+import logging
+from datetime import datetime
+import threading
+import time
+from dataclasses import dataclass
+
+@dataclass
+class ChangeEvent:
+    """Represents a database change event"""
+    operation: str  # INSERT, UPDATE, DELETE
+    table: str
+    schema: str
+    before: Optional[Dict]
+    after: Optional[Dict]
+    timestamp: datetime
+    lsn: str  # Log Sequence Number
+    transaction_id: str
+
+class PostgreSQLCDC:
+    """PostgreSQL Change Data Capture implementation"""
+    
+    def __init__(self, db_config: Dict[str, str]):
+        self.db_config = db_config
+        self.connection = None
+        self.replication_connection = None
+        self.change_handlers = {}
+        self.logger = logging.getLogger(__name__)
+        self.running = False
+        
+        # Track processed LSN for resumption
+        self.last_processed_lsn = None
+    
+    def setup_logical_replication(self, slot_name: str = 'cdc_slot'):
+        """Set up logical replication slot"""
+        
+        try:
+            # Connect with replication privileges
+            conn_string = f"host={self.db_config['host']} port={self.db_config['port']} " \
+                         f"dbname={self.db_config['database']} user={self.db_config['user']} " \
+                         f"password={self.db_config['password']}"
+            
+            self.connection = psycopg2.connect(conn_string)
+            self.connection.autocommit = True
+            
+            cursor = self.connection.cursor()
+            
+            # Create replication slot if it doesn't exist
+            try:
+                cursor.execute(f"SELECT pg_create_logical_replication_slot('{slot_name}', 'wal2json');")
+                self.logger.info(f"Created replication slot: {slot_name}")
+            except psycopg2.errors.DuplicateObject:
+                self.logger.info(f"Replication slot already exists: {slot_name}")
+            
+            # Create replication connection
+            self.replication_connection = psycopg2.connect(
+                conn_string,
+                connection_factory=psycopg2.extras.LogicalReplicationConnection
+            )
+            
+            self.slot_name = slot_name
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup logical replication: {e}")
+            return False
+    
+    def register_change_handler(self, table_name: str, handler: Callable[[ChangeEvent], bool]):
+        """Register handler for table changes"""
+        
+        self.change_handlers[table_name] = handler
+        self.logger.info(f"Registered change handler for table: {table_name}")
+    
+    def parse_wal_message(self, msg_payload: str) -> List[ChangeEvent]:
+        """Parse WAL message into change events"""
+        
+        try:
+            wal_data = json.loads(msg_payload)
+            events = []
+            
+            for change in wal_data.get('change', []):
+                operation = change['kind']  # insert, update, delete
+                table = change['table']
+                schema = change['schema']
+                
+                # Extract before/after data
+                before_data = None
+                after_data = None
+                
+                if operation == 'insert':
+                    after_data = {col['name']: col['value'] for col in change['columnvalues']}
+                elif operation == 'update':
+                    before_data = {col['name']: col['value'] for col in change.get('oldkeys', {}).get('keyvalues', [])}
+                    after_data = {col['name']: col['value'] for col in change['columnvalues']}
+                elif operation == 'delete':
+                    before_data = {col['name']: col['value'] for col in change.get('oldkeys', {}).get('keyvalues', [])}
+                
+                event = ChangeEvent(
+                    operation=operation.upper(),
+                    table=table,
+                    schema=schema,
+                    before=before_data,
+                    after=after_data,
+                    timestamp=datetime.now(),
+                    lsn=wal_data.get('nextlsn', ''),
+                    transaction_id=wal_data.get('xid', '')
+                )
+                
+                events.append(event)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Failed to parse WAL message: {e}")
+            return []
+    
+    def process_change_event(self, event: ChangeEvent) -> bool:
+        """Process a single change event"""
+        
+        try:
+            handler = self.change_handlers.get(event.table)
+            
+            if handler:
+                success = handler(event)
+                if success:
+                    self.logger.debug(f"Processed {event.operation} on {event.table}")
+                    return True
+                else:
+                    self.logger.warning(f"Handler failed for {event.operation} on {event.table}")
+                    return False
+            else:
+                self.logger.debug(f"No handler for table: {event.table}")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Failed to process change event: {e}")
+            return False
+    
+    def start_cdc_stream(self, start_lsn: str = None):
+        """Start CDC streaming"""
+        
+        try:
+            self.running = True
+            cursor = self.replication_connection.cursor()
+            
+            # Start logical replication
+            start_lsn = start_lsn or self.last_processed_lsn or '0/0'
+            cursor.start_replication(
+                slot_name=self.slot_name,
+                decode=True,
+                start_lsn=start_lsn,
+                options={'pretty-print': 1}
+            )
+            
+            self.logger.info(f"Started CDC streaming from LSN: {start_lsn}")
+            
+            # Process messages
+            while self.running:
+                msg = cursor.read_message()
+                
+                if msg:
+                    # Parse and process changes
+                    events = self.parse_wal_message(msg.payload)
+                    
+                    for event in events:
+                        success = self.process_change_event(event)
+                        
+                        if success:
+                            self.last_processed_lsn = event.lsn
+                        else:
+                            self.logger.error(f"Failed to process event: {event}")
+                            # Could implement retry logic here
+                    
+                    # Acknowledge message processing
+                    cursor.send_feedback(flush_lsn=msg.data_start)
+                
+                time.sleep(0.1)  # Small delay to prevent CPU spinning
+                
+        except Exception as e:
+            self.logger.error(f"CDC streaming failed: {e}")
+        finally:
+            self.running = False
+    
+    def stop_cdc_stream(self):
+        """Stop CDC streaming"""
+        
+        self.running = False
+        if self.replication_connection:
+            self.replication_connection.close()
+        if self.connection:
+            self.connection.close()
+        
+        self.logger.info("CDC streaming stopped")
+
+# Example change handlers
+def customer_change_handler(event: ChangeEvent) -> bool:
+    """Handle customer table changes"""
+    
+    try:
+        if event.operation == 'INSERT':
+            # New customer created
+            customer_data = event.after
+            customer_id = customer_data.get('customer_id')
+            
+            # Sync to data warehouse
+            sync_to_warehouse('customers', customer_data, 'insert')
+            
+            # Update search index
+            update_search_index('customers', customer_id, customer_data)
+            
+            # Invalidate cache
+            invalidate_cache(f"customer:{customer_id}")
+            
+            logging.info(f"Processed new customer: {customer_id}")
+            
+        elif event.operation == 'UPDATE':
+            # Customer updated
+            before_data = event.before
+            after_data = event.after
+            customer_id = after_data.get('customer_id')
+            
+            # Sync changes to warehouse
+            sync_to_warehouse('customers', after_data, 'update')
+            
+            # Update search index
+            update_search_index('customers', customer_id, after_data)
+            
+            # Invalidate cache
+            invalidate_cache(f"customer:{customer_id}")
+            
+            logging.info(f"Processed customer update: {customer_id}")
+            
+        elif event.operation == 'DELETE':
+            # Customer deleted
+            customer_data = event.before
+            customer_id = customer_data.get('customer_id')
+            
+            # Soft delete in warehouse
+            sync_to_warehouse('customers', {'customer_id': customer_id, 'deleted_at': datetime.now()}, 'delete')
+            
+            # Remove from search index
+            remove_from_search_index('customers', customer_id)
+            
+            # Remove from cache
+            remove_from_cache(f"customer:{customer_id}")
+            
+            logging.info(f"Processed customer deletion: {customer_id}")
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"Customer change handler failed: {e}")
+        return False
+
+def order_change_handler(event: ChangeEvent) -> bool:
+    """Handle order table changes"""
+    
+    try:
+        if event.operation == 'INSERT':
+            order_data = event.after
+            order_id = order_data.get('order_id')
+            customer_id = order_data.get('customer_id')
+            
+            # Real-time analytics update
+            update_customer_metrics(customer_id, order_data)
+            
+            # Trigger order fulfillment
+            trigger_order_fulfillment(order_id)
+            
+            # Update inventory
+            update_inventory_levels(order_data.get('items', []))
+            
+            logging.info(f"Processed new order: {order_id}")
+            
+        elif event.operation == 'UPDATE':
+            before_data = event.before
+            after_data = event.after
+            order_id = after_data.get('order_id')
+            
+            # Check for status changes
+            old_status = before_data.get('status')
+            new_status = after_data.get('status')
+            
+            if old_status != new_status:
+                # Status changed - trigger notifications
+                send_status_notification(order_id, new_status)
+                
+                if new_status == 'shipped':
+                    # Update shipping tracking
+                    update_shipping_tracking(order_id, after_data)
+            
+            logging.info(f"Processed order update: {order_id}")
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"Order change handler failed: {e}")
+        return False
+
+# Helper functions (simplified implementations)
+def sync_to_warehouse(table: str, data: Dict, operation: str):
+    """Sync data to warehouse"""
+    # Implementation would use warehouse connection
+    logging.info(f"Syncing {operation} to warehouse table {table}")
+
+def update_search_index(index: str, doc_id: str, data: Dict):
+    """Update search index"""
+    # Implementation would use Elasticsearch/Solr
+    logging.info(f"Updating search index {index} for {doc_id}")
+
+def invalidate_cache(cache_key: str):
+    """Invalidate cache entry"""
+    # Implementation would use Redis/Memcached
+    logging.info(f"Invalidating cache key: {cache_key}")
+
+def update_customer_metrics(customer_id: str, order_data: Dict):
+    """Update real-time customer metrics"""
+    # Implementation would update analytics database
+    logging.info(f"Updating metrics for customer: {customer_id}")
+
+def trigger_order_fulfillment(order_id: str):
+    """Trigger order fulfillment process"""
+    # Implementation would send message to fulfillment system
+    logging.info(f"Triggering fulfillment for order: {order_id}")
+
+# Usage example
+db_config = {
+    'host': 'localhost',
+    'port': 5432,
+    'database': 'ecommerce',
+    'user': 'postgres',
+    'password': 'password'
+}
+
+cdc = PostgreSQLCDC(db_config)
+
+# Setup logical replication
+cdc.setup_logical_replication('ecommerce_cdc_slot')
+
+# Register change handlers
+cdc.register_change_handler('customers', customer_change_handler)
+cdc.register_change_handler('orders', order_change_handler)
+
+# Start CDC in separate thread
+def start_cdc():
+    cdc.start_cdc_stream()
+
+cdc_thread = threading.Thread(target=start_cdc)
+cdc_thread.daemon = True
+cdc_thread.start()
+
+# CDC will now capture and process changes in real-time
+logging.info("CDC system started - monitoring database changes")
+```
+
+## MySQL CDC Implementation
+
+### MySQL Binlog CDC
+
+```python
+# MySQL CDC using binlog
+from pymysqlreplication import BinLogStreamReader
+from pymysqlreplication.row_event import DeleteRowsEvent, UpdateRowsEvent, WriteRowsEvent
+import logging
+from typing import Dict, Callable
+
+class MySQLCDC:
+    """MySQL Change Data Capture using binlog"""
+    
+    def __init__(self, mysql_config: Dict):
+        self.mysql_config = mysql_config
+        self.change_handlers = {}
+        self.logger = logging.getLogger(__name__)
+        self.stream = None
+    
+    def setup_binlog_stream(self, server_id: int = 1):
+        """Setup MySQL binlog stream"""
+        
+        try:
+            self.stream = BinLogStreamReader(
+                connection_settings=self.mysql_config,
+                server_id=server_id,
+                blocking=True,
+                only_events=[DeleteRowsEvent, WriteRowsEvent, UpdateRowsEvent],
+                only_tables=list(self.change_handlers.keys()) if self.change_handlers else None
+            )
+            
+            self.logger.info("MySQL binlog stream initialized")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup binlog stream: {e}")
+            return False
+    
+    def register_table_handler(self, table_name: str, handler: Callable):
+        """Register handler for table changes"""
+        
+        self.change_handlers[table_name] = handler
+        self.logger.info(f"Registered handler for table: {table_name}")
+    
+    def start_cdc_stream(self):
+        """Start processing binlog events"""
+        
+        try:
+            for binlog_event in self.stream:
+                for row in binlog_event.rows:
+                    table_name = binlog_event.table
+                    schema_name = binlog_event.schema
+                    
+                    # Create change event
+                    if isinstance(binlog_event, WriteRowsEvent):
+                        operation = 'INSERT'
+                        before_data = None
+                        after_data = row['values']
+                    elif isinstance(binlog_event, UpdateRowsEvent):
+                        operation = 'UPDATE'
+                        before_data = row['before_values']
+                        after_data = row['after_values']
+                    elif isinstance(binlog_event, DeleteRowsEvent):
+                        operation = 'DELETE'
+                        before_data = row['values']
+                        after_data = None
+                    
+                    # Process change
+                    handler = self.change_handlers.get(table_name)
+                    if handler:
+                        change_event = {
+                            'operation': operation,
+                            'table': table_name,
+                            'schema': schema_name,
+                            'before': before_data,
+                            'after': after_data,
+                            'timestamp': binlog_event.timestamp
+                        }
+                        
+                        handler(change_event)
+                        
+        except Exception as e:
+            self.logger.error(f"Binlog streaming failed: {e}")
+
+# Usage
+mysql_config = {
+    'host': 'localhost',
+    'port': 3306,
+    'user': 'replication_user',
+    'passwd': 'password'
+}
+
+mysql_cdc = MySQLCDC(mysql_config)
+mysql_cdc.register_table_handler('users', user_change_handler)
+mysql_cdc.setup_binlog_stream()
+mysql_cdc.start_cdc_stream()
+```
+
+## Kafka-Based CDC Pipeline
+
+### CDC to Kafka Integration
+
+```python
+# CDC to Kafka pipeline
+from kafka import KafkaProducer
+import json
+from typing import Dict, Any
+import logging
+
+class CDCKafkaPublisher:
+    """Publish CDC events to Kafka"""
+    
+    def __init__(self, kafka_config: Dict, topic_prefix: str = 'cdc'):
+        self.producer = KafkaProducer(
+            bootstrap_servers=kafka_config['bootstrap_servers'],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: str(k).encode('utf-8')
+        )
+        self.topic_prefix = topic_prefix
+        self.logger = logging.getLogger(__name__)
+    
+    def publish_change_event(self, event: ChangeEvent):
+        """Publish change event to Kafka"""
+        
+        try:
+            topic = f"{self.topic_prefix}.{event.schema}.{event.table}"
+            
+            kafka_event = {
+                'operation': event.operation,
+                'table': event.table,
+                'schema': event.schema,
+                'before': event.before,
+                'after': event.after,
+                'timestamp': event.timestamp.isoformat(),
+                'lsn': event.lsn,
+                'transaction_id': event.transaction_id
+            }
+            
+            # Use primary key as message key for partitioning
+            key = None
+            if event.after:
+                key = event.after.get('id') or event.after.get(f'{event.table}_id')
+            elif event.before:
+                key = event.before.get('id') or event.before.get(f'{event.table}_id')
+            
+            self.producer.send(topic, value=kafka_event, key=key)
+            self.producer.flush()
+            
+            self.logger.info(f"Published CDC event to {topic}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to publish CDC event: {e}")
+            return False
+
+# Enhanced change handler with Kafka publishing
+def kafka_enabled_change_handler(event: ChangeEvent, kafka_publisher: CDCKafkaPublisher) -> bool:
+    """Change handler that publishes to Kafka"""
+    
+    try:
+        # Publish to Kafka first
+        kafka_success = kafka_publisher.publish_change_event(event)
+        
+        if not kafka_success:
+            return False
+        
+        # Then process locally if needed
+        if event.table == 'customers':
+            return customer_change_handler(event)
+        elif event.table == 'orders':
+            return order_change_handler(event)
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"Kafka-enabled handler failed: {e}")
+        return False
+
+# Usage with Kafka
+kafka_config = {'bootstrap_servers': ['localhost:9092']}
+kafka_publisher = CDCKafkaPublisher(kafka_config)
+
+# Modified handler registration
+def create_kafka_handler(table_name: str):
+    def handler(event: ChangeEvent) -> bool:
+        return kafka_enabled_change_handler(event, kafka_publisher)
+    return handler
+
+cdc.register_change_handler('customers', create_kafka_handler('customers'))
+cdc.register_change_handler('orders', create_kafka_handler('orders'))
+```
+
+## CDC Best Practices
+
+### Error Handling and Recovery
+
+```python
+# CDC with robust error handling
+class RobustCDC:
+    def __init__(self, db_config: Dict):
+        self.db_config = db_config
+        self.retry_config = {
+            'max_retries': 3,
+            'retry_delay': 5,
+            'exponential_backoff': True
+        }
+        self.dead_letter_queue = []
+        
+    def process_with_retry(self, event: ChangeEvent, handler: Callable) -> bool:
+        """Process event with retry logic"""
+        
+        retries = 0
+        delay = self.retry_config['retry_delay']
+        
+        while retries < self.retry_config['max_retries']:
+            try:
+                return handler(event)
+                
+            except Exception as e:
+                retries += 1
+                self.logger.warning(f"Handler failed (attempt {retries}): {e}")
+                
+                if retries < self.retry_config['max_retries']:
+                    time.sleep(delay)
+                    if self.retry_config['exponential_backoff']:
+                        delay *= 2
+                else:
+                    # Send to dead letter queue
+                    self.dead_letter_queue.append({
+                        'event': event,
+                        'error': str(e),
+                        'timestamp': datetime.now()
+                    })
+                    return False
+        
+        return False
+    
+    def process_dead_letter_queue(self):
+        """Process failed events from dead letter queue"""
+        
+        processed = []
+        
+        for item in self.dead_letter_queue:
+            event = item['event']
+            handler = self.change_handlers.get(event.table)
+            
+            if handler:
+                success = self.process_with_retry(event, handler)
+                if success:
+                    processed.append(item)
+        
+        # Remove successfully processed items
+        for item in processed:
+            self.dead_letter_queue.remove(item)
+        
+        return len(processed)
+```
+
+## CDC Monitoring and Metrics
+
+```python
+# CDC monitoring implementation
+from dataclasses import dataclass
+from collections import defaultdict
+import time
+
+@dataclass
+class CDCMetrics:
+    events_processed: int = 0
+    events_failed: int = 0
+    lag_seconds: float = 0.0
+    throughput_per_second: float = 0.0
+    last_processed_lsn: str = ""
+    
+class CDCMonitor:
+    def __init__(self):
+        self.metrics = CDCMetrics()
+        self.table_metrics = defaultdict(lambda: CDCMetrics())
+        self.start_time = time.time()
+        
+    def record_event_processed(self, table: str):
+        """Record successful event processing"""
+        self.metrics.events_processed += 1
+        self.table_metrics[table].events_processed += 1
+        
+    def record_event_failed(self, table: str):
+        """Record failed event processing"""
+        self.metrics.events_failed += 1
+        self.table_metrics[table].events_failed += 1
+        
+    def calculate_throughput(self):
+        """Calculate events per second"""
+        elapsed = time.time() - self.start_time
+        if elapsed > 0:
+            self.metrics.throughput_per_second = self.metrics.events_processed / elapsed
+            
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get CDC system health status"""
+        
+        self.calculate_throughput()
+        
+        total_events = self.metrics.events_processed + self.metrics.events_failed
+        success_rate = (self.metrics.events_processed / total_events * 100) if total_events > 0 else 0
+        
+        return {
+            'status': 'healthy' if success_rate > 95 else 'degraded' if success_rate > 90 else 'unhealthy',
+            'events_processed': self.metrics.events_processed,
+            'events_failed': self.metrics.events_failed,
+            'success_rate': success_rate,
+            'throughput_per_second': self.metrics.throughput_per_second,
+            'lag_seconds': self.metrics.lag_seconds,
+            'table_metrics': dict(self.table_metrics)
+        }
+
+# Usage
+monitor = CDCMonitor()
+
+def monitored_change_handler(event: ChangeEvent) -> bool:
+    try:
+        # Process event
+        success = original_handler(event)
+        
+        if success:
+            monitor.record_event_processed(event.table)
+        else:
+            monitor.record_event_failed(event.table)
+            
+        return success
+        
+    except Exception as e:
+        monitor.record_event_failed(event.table)
+        raise
+```
+
+## CDC Use Cases
+
+### Real-Time Analytics
+- **Customer behavior tracking** - Track user actions in real-time
+- **Inventory management** - Update stock levels immediately
+- **Fraud detection** - Analyze transactions as they occur
+- **Personalization** - Update recommendations based on recent activity
+
+### Data Synchronization
+- **Multi-region replication** - Keep databases in sync across regions
+- **Cache invalidation** - Update caches when source data changes
+- **Search index updates** - Keep search indexes current
+- **Microservice data consistency** - Sync data between services
+
+### Event-Driven Architecture
+- **Order processing** - Trigger workflows on order changes
+- **Notification systems** - Send alerts on data changes
+- **Audit logging** - Track all data modifications
+- **Integration patterns** - Connect systems through events
+
+## Summary
+
+Change Data Capture enables real-time data integration by:
+
+- **Capturing changes** at the database level
+- **Streaming events** to downstream systems
+- **Maintaining data consistency** across platforms
+- **Enabling real-time analytics** and processing
+
+Key considerations:
+- **Database compatibility** - Ensure CDC support
+- **Performance impact** - Monitor source database load
+- **Error handling** - Implement robust retry mechanisms
+- **Monitoring** - Track CDC system health and performance
+
+---
+
+**Next**: Learn about [Apache Spark Streaming](/chapters/stream-processing/spark-streaming) for real-time data processing.

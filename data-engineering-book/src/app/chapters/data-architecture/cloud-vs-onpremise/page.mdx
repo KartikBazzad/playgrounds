@@ -1,0 +1,424 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Cloud vs On-Premise Data Architecture
+
+The choice between cloud and on-premise data architecture is one of the most critical decisions in modern data engineering. Each approach offers distinct advantages and challenges that must be carefully evaluated.
+
+## Architecture Comparison
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Cloud Architecture"
+        CS1[Managed Services]
+        CS2[Auto-scaling]
+        CS3[Global Reach]
+        CS4[Pay-as-you-go]
+    end
+    
+    subgraph "On-Premise Architecture"
+        OP1[Full Control]
+        OP2[Data Sovereignty]
+        OP3[Compliance]
+        OP4[Customization]
+    end
+    
+    subgraph "Hybrid Architecture"
+        HA1[Cloud Bursting]
+        HA2[Data Replication]
+        HA3[Workload Distribution]
+    end
+    
+    style CS1 fill:#e3f2fd
+    style OP1 fill:#e8f5e8
+    style HA1 fill:#fff3e0
+`} />
+
+## Cloud Data Architecture
+
+### Cloud Implementation Example
+
+```python
+# Cloud-native data platform with AWS services
+import boto3
+import pandas as pd
+from typing import Dict, List, Any, Optional
+import json
+from datetime import datetime
+
+class CloudDataPlatform:
+    def __init__(self, aws_config: Dict[str, str]):
+        self.s3_client = boto3.client('s3', **aws_config)
+        self.glue_client = boto3.client('glue', **aws_config)
+        self.athena_client = boto3.client('athena', **aws_config)
+        self.redshift_client = boto3.client('redshift', **aws_config)
+    
+    def setup_data_lake(self, bucket_name: str):
+        """Set up S3-based data lake"""
+        try:
+            self.s3_client.create_bucket(Bucket=bucket_name)
+            
+            # Set up lifecycle policies for cost optimization
+            lifecycle_config = {
+                'Rules': [
+                    {
+                        'ID': 'ArchiveOldData',
+                        'Status': 'Enabled',
+                        'Filter': {'Prefix': 'raw-data/'},
+                        'Transitions': [
+                            {'Days': 30, 'StorageClass': 'STANDARD_IA'},
+                            {'Days': 90, 'StorageClass': 'GLACIER'}
+                        ]
+                    }
+                ]
+            }
+            
+            self.s3_client.put_bucket_lifecycle_configuration(
+                Bucket=bucket_name,
+                LifecycleConfiguration=lifecycle_config
+            )
+            
+            return True
+        except Exception as e:
+            print(f"Failed to setup data lake: {e}")
+            return False
+    
+    def query_with_athena(self, query: str, database: str, output_location: str):
+        """Execute query using Amazon Athena"""
+        try:
+            response = self.athena_client.start_query_execution(
+                QueryString=query,
+                QueryExecutionContext={'Database': database},
+                ResultConfiguration={'OutputLocation': output_location}
+            )
+            
+            query_execution_id = response['QueryExecutionId']
+            
+            # Wait for completion (simplified)
+            import time
+            time.sleep(10)
+            
+            # Get results
+            results = self.athena_client.get_query_results(
+                QueryExecutionId=query_execution_id
+            )
+            
+            return results
+        except Exception as e:
+            print(f"Athena query failed: {e}")
+            return None
+    
+    def setup_auto_scaling(self, cluster_name: str):
+        """Set up auto-scaling for compute resources"""
+        scaling_policy = {
+            'PolicyName': f"{cluster_name}-scaling",
+            'ServiceNamespace': 'redshift',
+            'ResourceId': f'cluster:{cluster_name}',
+            'ScalableDimension': 'redshift:cluster:ReadCapacity',
+            'PolicyType': 'TargetTrackingScaling',
+            'TargetTrackingScalingPolicyConfiguration': {
+                'TargetValue': 70.0,
+                'PredefinedMetricSpecification': {
+                    'PredefinedMetricType': 'RedshiftDatabaseConnections'
+                }
+            }
+        }
+        
+        return scaling_policy
+
+# Usage
+aws_config = {'region_name': 'us-west-2'}
+cloud_platform = CloudDataPlatform(aws_config)
+cloud_platform.setup_data_lake('my-data-lake')
+```
+
+## On-Premise Data Architecture
+
+### On-Premise Implementation
+
+```python
+# On-premise data platform implementation
+import docker
+import subprocess
+import yaml
+from typing import Dict, Any
+
+class OnPremiseDataPlatform:
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.docker_client = docker.from_env()
+    
+    def setup_infrastructure(self):
+        """Set up containerized data infrastructure"""
+        compose_config = {
+            'version': '3.8',
+            'services': {
+                'postgres': {
+                    'image': 'postgres:13',
+                    'environment': {
+                        'POSTGRES_DB': 'analytics',
+                        'POSTGRES_USER': 'admin',
+                        'POSTGRES_PASSWORD': 'password'
+                    },
+                    'ports': ['5432:5432'],
+                    'volumes': ['postgres_data:/var/lib/postgresql/data']
+                },
+                'redis': {
+                    'image': 'redis:6',
+                    'ports': ['6379:6379'],
+                    'volumes': ['redis_data:/data']
+                },
+                'kafka': {
+                    'image': 'confluentinc/cp-kafka:latest',
+                    'environment': {
+                        'KAFKA_ZOOKEEPER_CONNECT': 'zookeeper:2181',
+                        'KAFKA_ADVERTISED_LISTENERS': 'PLAINTEXT://localhost:9092'
+                    },
+                    'ports': ['9092:9092'],
+                    'depends_on': ['zookeeper']
+                },
+                'zookeeper': {
+                    'image': 'confluentinc/cp-zookeeper:latest',
+                    'environment': {'ZOOKEEPER_CLIENT_PORT': 2181},
+                    'ports': ['2181:2181']
+                }
+            },
+            'volumes': {
+                'postgres_data': {},
+                'redis_data': {}
+            }
+        }
+        
+        # Write and start services
+        with open('docker-compose.yml', 'w') as f:
+            yaml.dump(compose_config, f)
+        
+        try:
+            result = subprocess.run(
+                ['docker-compose', 'up', '-d'],
+                capture_output=True, text=True
+            )
+            return result.returncode == 0
+        except Exception as e:
+            print(f"Infrastructure setup failed: {e}")
+            return False
+    
+    def implement_backup_strategy(self):
+        """Implement backup strategy"""
+        backup_script = """
+        #!/bin/bash
+        BACKUP_DIR="/backups"
+        DATE=$(date +%Y%m%d_%H%M%S)
+        
+        # Database backup
+        pg_dump analytics > $BACKUP_DIR/db_backup_$DATE.sql
+        gzip $BACKUP_DIR/db_backup_$DATE.sql
+        
+        # File system backup
+        rsync -av /data/ $BACKUP_DIR/files/
+        
+        # Remove old backups (30 days)
+        find $BACKUP_DIR -name "*.gz" -mtime +30 -delete
+        """
+        
+        return backup_script
+    
+    def setup_monitoring(self):
+        """Set up monitoring with Prometheus and Grafana"""
+        monitoring_config = {
+            'prometheus': {
+                'global': {'scrape_interval': '15s'},
+                'scrape_configs': [
+                    {
+                        'job_name': 'postgres',
+                        'static_configs': [{'targets': ['localhost:5432']}]
+                    },
+                    {
+                        'job_name': 'redis',
+                        'static_configs': [{'targets': ['localhost:6379']}]
+                    }
+                ]
+            },
+            'grafana': {
+                'dashboards': [
+                    'Database Performance',
+                    'System Resources',
+                    'Application Metrics'
+                ]
+            }
+        }
+        
+        return monitoring_config
+    
+    def calculate_tco(self, years: int = 3):
+        """Calculate Total Cost of Ownership"""
+        costs = {
+            'hardware': {
+                'servers': 50000,
+                'storage': 25000,
+                'networking': 15000,
+                'maintenance': 5000 * years
+            },
+            'software': {
+                'licenses': 20000,
+                'monitoring': 10000,
+                'security': 15000
+            },
+            'operational': {
+                'power': 8000 * years,
+                'cooling': 5000 * years,
+                'personnel': 150000 * years,
+                'facility': 20000 * years
+            }
+        }
+        
+        total_cost = (
+            sum(costs['hardware'].values()) +
+            sum(costs['software'].values()) +
+            sum(costs['operational'].values())
+        )
+        
+        return {
+            'breakdown': costs,
+            'total_tco': total_cost,
+            'annual_cost': total_cost / years
+        }
+
+# Usage
+on_premise = OnPremiseDataPlatform({})
+on_premise.setup_infrastructure()
+tco = on_premise.calculate_tco(3)
+print(f"3-year TCO: ${tco['total_tco']:,}")
+```
+
+## Decision Framework
+
+### Cost Comparison
+
+| Factor | Cloud | On-Premise |
+|--------|-------|------------|
+| **Initial Investment** | Low (pay-as-you-go) | High (hardware, setup) |
+| **Operational Costs** | Variable (usage-based) | Fixed (maintenance, staff) |
+| **Scalability Costs** | Linear with usage | Step-function (new hardware) |
+| **3-Year TCO** | $200K - $500K | $300K - $800K |
+
+### Technical Comparison
+
+| Aspect | Cloud | On-Premise |
+|--------|-------|------------|
+| **Scalability** | Elastic, automatic | Manual, planned |
+| **Availability** | 99.9%+ SLA | Depends on setup |
+| **Security** | Shared responsibility | Full control |
+| **Compliance** | Varies by provider | Full control |
+| **Performance** | Variable latency | Predictable |
+| **Customization** | Limited | Complete |
+
+## Hybrid Architecture
+
+### Hybrid Implementation
+
+```python
+# Hybrid cloud-on-premise architecture
+class HybridDataPlatform:
+    def __init__(self, cloud_config: Dict, on_premise_config: Dict):
+        self.cloud_platform = CloudDataPlatform(cloud_config)
+        self.on_premise_platform = OnPremiseDataPlatform(on_premise_config)
+    
+    def setup_data_replication(self, source: str, target: str, frequency: str):
+        """Set up data replication between environments"""
+        replication_config = {
+            'source': source,
+            'target': target,
+            'frequency': frequency,
+            'compression': True,
+            'encryption': True,
+            'bandwidth_limit': '100MB/s'
+        }
+        
+        return replication_config
+    
+    def implement_cloud_bursting(self, cpu_threshold: float = 80):
+        """Implement cloud bursting for peak loads"""
+        bursting_config = {
+            'trigger_threshold': cpu_threshold,
+            'cloud_instance_type': 'm5.2xlarge',
+            'auto_scaling_group': 'data-processing-asg',
+            'cooldown_period': 300  # 5 minutes
+        }
+        
+        return bursting_config
+    
+    def route_workloads(self, workload_type: str, data_sensitivity: str):
+        """Route workloads based on requirements"""
+        if data_sensitivity == 'high':
+            return 'on_premise'
+        elif workload_type in ['analytics', 'ml_training']:
+            return 'cloud'
+        else:
+            return 'hybrid'
+
+# Usage
+hybrid = HybridDataPlatform(aws_config, {})
+location = hybrid.route_workloads('ml_training', 'medium')
+print(f"Workload routed to: {location}")
+```
+
+## Best Practices
+
+### Cloud Best Practices
+- **Cost optimization** - Use reserved instances, lifecycle policies
+- **Security** - Implement IAM, encryption, VPCs
+- **Monitoring** - Use native cloud monitoring tools
+- **Backup** - Leverage automated backup services
+- **Compliance** - Understand shared responsibility model
+
+### On-Premise Best Practices
+- **Capacity planning** - Plan for peak loads and growth
+- **Redundancy** - Implement high availability and disaster recovery
+- **Security** - Full-stack security implementation
+- **Monitoring** - Comprehensive infrastructure monitoring
+- **Documentation** - Maintain detailed system documentation
+
+### Hybrid Best Practices
+- **Data governance** - Consistent policies across environments
+- **Network connectivity** - Reliable, secure connections
+- **Identity management** - Unified identity and access management
+- **Monitoring** - Centralized monitoring across environments
+- **Cost management** - Track costs across both environments
+
+## Decision Criteria
+
+### Choose Cloud When:
+- Rapid scaling requirements
+- Limited IT infrastructure team
+- Variable workloads
+- Global data access needed
+- Focus on core business vs infrastructure
+
+### Choose On-Premise When:
+- Strict compliance requirements
+- Predictable workloads
+- High-performance computing needs
+- Data sovereignty concerns
+- Existing infrastructure investments
+
+### Choose Hybrid When:
+- Mixed compliance requirements
+- Gradual cloud migration
+- Disaster recovery needs
+- Cost optimization across environments
+- Different workload characteristics
+
+## Summary
+
+The choice between cloud, on-premise, and hybrid architectures depends on:
+
+- **Cost considerations** - Initial investment vs operational costs
+- **Technical requirements** - Performance, scalability, customization
+- **Compliance needs** - Data sovereignty, regulatory requirements
+- **Organizational factors** - Skills, resources, strategic direction
+
+Most organizations are moving toward hybrid approaches that leverage the benefits of both cloud and on-premise solutions.
+
+---
+
+**Next**: Learn about [Data Lakes](/chapters/data-storage/data-lakes) for storing unstructured data at scale.

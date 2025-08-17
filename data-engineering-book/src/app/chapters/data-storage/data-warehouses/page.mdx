@@ -1,0 +1,638 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Warehouses
+
+Data warehouses are centralized repositories designed for analytical processing and business intelligence. They store large volumes of structured data from multiple sources, optimized for complex queries and reporting.
+
+## Data Warehouse Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        A[OLTP Systems]
+        B[CRM Systems]
+        C[ERP Systems]
+        D[External APIs]
+        E[Log Files]
+    end
+    
+    subgraph "ETL Layer"
+        F[Extract]
+        G[Transform]
+        H[Load]
+    end
+    
+    subgraph "Data Warehouse"
+        I[Staging Area]
+        J[Data Warehouse Core]
+        K[Data Marts]
+    end
+    
+    subgraph "Presentation Layer"
+        L[OLAP Cubes]
+        M[Reports]
+        N[Dashboards]
+        O[Analytics Tools]
+    end
+    
+    A --> F
+    B --> F
+    C --> F
+    D --> F
+    E --> F
+    
+    F --> G
+    G --> H
+    H --> I
+    I --> J
+    J --> K
+    
+    K --> L
+    K --> M
+    K --> N
+    K --> O
+    
+    style I fill:#e3f2fd
+    style J fill:#e8f5e8
+    style K fill:#fff3e0
+`} />
+
+## Dimensional Modeling
+
+### Star Schema Implementation
+
+```python
+# Star schema implementation for sales analytics
+import pandas as pd
+from sqlalchemy import create_engine
+from datetime import datetime, timedelta
+
+class StarSchemaDesign:
+    def __init__(self, connection_string: str):
+        self.engine = create_engine(connection_string)
+    
+    def create_dimension_tables(self):
+        """Create dimension tables for star schema"""
+        
+        # Date dimension
+        date_dim_sql = """
+            CREATE TABLE dim_date (
+                date_key INTEGER PRIMARY KEY,
+                date_actual DATE NOT NULL,
+                day_of_week INTEGER,
+                day_name VARCHAR(10),
+                month_number INTEGER,
+                month_name VARCHAR(10),
+                quarter INTEGER,
+                year INTEGER,
+                is_weekend BOOLEAN,
+                is_holiday BOOLEAN
+            );
+        """
+        
+        # Customer dimension
+        customer_dim_sql = """
+            CREATE TABLE dim_customer (
+                customer_key INTEGER PRIMARY KEY,
+                customer_id VARCHAR(50) NOT NULL,
+                customer_name VARCHAR(100),
+                customer_segment VARCHAR(50),
+                customer_tier VARCHAR(20),
+                registration_date DATE,
+                country VARCHAR(50),
+                region VARCHAR(50),
+                city VARCHAR(50)
+            );
+        """
+        
+        # Product dimension
+        product_dim_sql = """
+            CREATE TABLE dim_product (
+                product_key INTEGER PRIMARY KEY,
+                product_id VARCHAR(50) NOT NULL,
+                product_name VARCHAR(200),
+                category VARCHAR(100),
+                subcategory VARCHAR(100),
+                brand VARCHAR(100),
+                unit_price DECIMAL(10,2),
+                cost DECIMAL(10,2)
+            );
+        """
+        
+        # Execute DDL statements
+        with self.engine.connect() as conn:
+            conn.execute(date_dim_sql)
+            conn.execute(customer_dim_sql)
+            conn.execute(product_dim_sql)
+    
+    def create_fact_table(self):
+        """Create fact table with foreign keys to dimensions"""
+        
+        fact_sql = """
+            CREATE TABLE fact_sales (
+                sale_id BIGINT PRIMARY KEY,
+                date_key INTEGER NOT NULL,
+                customer_key INTEGER NOT NULL,
+                product_key INTEGER NOT NULL,
+                quantity INTEGER NOT NULL,
+                unit_price DECIMAL(10,2) NOT NULL,
+                discount_amount DECIMAL(10,2) DEFAULT 0,
+                total_amount DECIMAL(10,2) NOT NULL,
+                cost_amount DECIMAL(10,2) NOT NULL,
+                profit_amount DECIMAL(10,2) NOT NULL,
+                FOREIGN KEY (date_key) REFERENCES dim_date(date_key),
+                FOREIGN KEY (customer_key) REFERENCES dim_customer(customer_key),
+                FOREIGN KEY (product_key) REFERENCES dim_product(product_key)
+            );
+        """
+        
+        with self.engine.connect() as conn:
+            conn.execute(fact_sql)
+    
+    def load_date_dimension(self, start_date: str, end_date: str):
+        """Populate date dimension"""
+        
+        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        
+        date_data = []
+        for date in date_range:
+            date_data.append({
+                'date_key': int(date.strftime('%Y%m%d')),
+                'date_actual': date.date(),
+                'day_of_week': date.dayofweek + 1,
+                'day_name': date.strftime('%A'),
+                'month_number': date.month,
+                'month_name': date.strftime('%B'),
+                'quarter': date.quarter,
+                'year': date.year,
+                'is_weekend': date.dayofweek >= 5,
+                'is_holiday': False  # Simplified
+            })
+        
+        df = pd.DataFrame(date_data)
+        df.to_sql('dim_date', self.engine, if_exists='append', index=False)
+    
+    def analytical_queries(self):
+        """Common analytical queries on star schema"""
+        
+        # Monthly sales by category
+        monthly_sales_query = """
+            SELECT 
+                dd.year,
+                dd.month_name,
+                dp.category,
+                SUM(fs.total_amount) as total_revenue,
+                SUM(fs.profit_amount) as total_profit,
+                COUNT(*) as transaction_count
+            FROM fact_sales fs
+            JOIN dim_date dd ON fs.date_key = dd.date_key
+            JOIN dim_product dp ON fs.product_key = dp.product_key
+            GROUP BY dd.year, dd.month_name, dp.category
+            ORDER BY dd.year, dd.month_name, total_revenue DESC;
+        """
+        
+        # Customer segment analysis
+        customer_analysis_query = """
+            SELECT 
+                dc.customer_segment,
+                dc.country,
+                COUNT(DISTINCT dc.customer_key) as customer_count,
+                SUM(fs.total_amount) as total_revenue,
+                AVG(fs.total_amount) as avg_transaction_value,
+                SUM(fs.profit_amount) as total_profit
+            FROM fact_sales fs
+            JOIN dim_customer dc ON fs.customer_key = dc.customer_key
+            GROUP BY dc.customer_segment, dc.country
+            ORDER BY total_revenue DESC;
+        """
+        
+        return {
+            'monthly_sales': pd.read_sql(monthly_sales_query, self.engine),
+            'customer_analysis': pd.read_sql(customer_analysis_query, self.engine)
+        }
+
+# Usage
+star_schema = StarSchemaDesign("postgresql://user:pass@localhost/warehouse")
+star_schema.create_dimension_tables()
+star_schema.create_fact_table()
+star_schema.load_date_dimension('2024-01-01', '2024-12-31')
+```
+
+## Modern Cloud Data Warehouses
+
+### Amazon Redshift
+
+```python
+# Redshift optimization techniques
+import psycopg2
+import pandas as pd
+
+class RedshiftOptimization:
+    def __init__(self, connection_params: dict):
+        self.conn = psycopg2.connect(**connection_params)
+        self.cursor = self.conn.cursor()
+    
+    def optimize_table_design(self):
+        """Optimize table design with distribution and sort keys"""
+        
+        # Fact table with optimal distribution
+        optimized_fact_table = """
+            CREATE TABLE fact_sales_optimized (
+                sale_id BIGINT,
+                date_key INTEGER,
+                customer_key INTEGER,
+                product_key INTEGER,
+                quantity INTEGER,
+                total_amount DECIMAL(10,2),
+                profit_amount DECIMAL(10,2)
+            )
+            DISTSTYLE KEY 
+            DISTKEY(customer_key)
+            SORTKEY(date_key, customer_key);
+        """
+        
+        # Dimension table distributed to all nodes
+        customer_dim_optimized = """
+            CREATE TABLE dim_customer_optimized (
+                customer_key INTEGER,
+                customer_id VARCHAR(50),
+                customer_name VARCHAR(100),
+                customer_segment VARCHAR(50),
+                country VARCHAR(50)
+            ) DISTSTYLE ALL;
+        """
+        
+        self.cursor.execute(optimized_fact_table)
+        self.cursor.execute(customer_dim_optimized)
+        self.conn.commit()
+    
+    def create_materialized_views(self):
+        """Create materialized views for common queries"""
+        
+        monthly_summary_mv = """
+            CREATE MATERIALIZED VIEW mv_monthly_summary AS
+            SELECT 
+                EXTRACT(year FROM dd.date_actual) as year,
+                EXTRACT(month FROM dd.date_actual) as month,
+                dc.customer_segment,
+                SUM(fs.total_amount) as revenue,
+                COUNT(*) as transactions
+            FROM fact_sales_optimized fs
+            JOIN dim_date dd ON fs.date_key = dd.date_key
+            JOIN dim_customer_optimized dc ON fs.customer_key = dc.customer_key
+            GROUP BY 1, 2, 3;
+        """
+        
+        self.cursor.execute(monthly_summary_mv)
+        self.conn.commit()
+    
+    def analyze_query_performance(self):
+        """Analyze query performance and recommendations"""
+        
+        # Check table statistics
+        stats_query = """
+            SELECT 
+                schemaname,
+                tablename,
+                n_tup_ins as inserts,
+                n_tup_upd as updates,
+                n_tup_del as deletes,
+                n_live_tup as live_tuples,
+                n_dead_tup as dead_tuples
+            FROM pg_stat_user_tables
+            ORDER BY n_live_tup DESC;
+        """
+        
+        # Check distribution key effectiveness
+        distribution_query = """
+            SELECT 
+                slice,
+                COUNT(*) as row_count
+            FROM stv_tbl_perm
+            WHERE name = 'fact_sales_optimized'
+            GROUP BY slice
+            ORDER BY slice;
+        """
+        
+        stats_df = pd.read_sql(stats_query, self.conn)
+        dist_df = pd.read_sql(distribution_query, self.conn)
+        
+        return {'table_stats': stats_df, 'distribution_stats': dist_df}
+
+# Usage
+redshift_opt = RedshiftOptimization({
+    'host': 'cluster.redshift.amazonaws.com',
+    'database': 'analytics',
+    'user': 'analyst',
+    'password': 'password'
+})
+
+redshift_opt.optimize_table_design()
+redshift_opt.create_materialized_views()
+performance_stats = redshift_opt.analyze_query_performance()
+```
+
+### Snowflake Features
+
+```python
+# Snowflake advanced features
+import snowflake.connector
+from snowflake.connector.pandas_tools import write_pandas
+
+class SnowflakeAdvanced:
+    def __init__(self, connection_params: dict):
+        self.conn = snowflake.connector.connect(**connection_params)
+        self.cursor = self.conn.cursor()
+    
+    def implement_time_travel(self):
+        """Implement time travel queries"""
+        
+        # Query data from 1 hour ago
+        time_travel_query = """
+            SELECT COUNT(*)
+            FROM fact_sales
+            AT(TIMESTAMP => DATEADD(hour, -1, CURRENT_TIMESTAMP()));
+        """
+        
+        # Compare current vs historical data
+        comparison_query = """
+            SELECT 
+                'current' as period,
+                COUNT(*) as record_count,
+                SUM(total_amount) as total_revenue
+            FROM fact_sales
+            
+            UNION ALL
+            
+            SELECT 
+                '1_hour_ago' as period,
+                COUNT(*) as record_count,
+                SUM(total_amount) as total_revenue
+            FROM fact_sales
+            AT(TIMESTAMP => DATEADD(hour, -1, CURRENT_TIMESTAMP()));
+        """
+        
+        self.cursor.execute(comparison_query)
+        results = self.cursor.fetchall()
+        return results
+    
+    def create_secure_views(self):
+        """Create row-level security views"""
+        
+        secure_customer_view = """
+            CREATE OR REPLACE SECURE VIEW secure_customer_data AS
+            SELECT 
+                customer_key,
+                customer_id,
+                CASE 
+                    WHEN CURRENT_ROLE() = 'ANALYST' THEN customer_name
+                    ELSE 'REDACTED'
+                END as customer_name,
+                customer_segment,
+                country
+            FROM dim_customer;
+        """
+        
+        self.cursor.execute(secure_customer_view)
+    
+    def implement_zero_copy_cloning(self):
+        """Create zero-copy clones for development"""
+        
+        clone_commands = [
+            "CREATE TABLE fact_sales_dev CLONE fact_sales;",
+            "CREATE TABLE dim_customer_test CLONE dim_customer;"
+        ]
+        
+        for command in clone_commands:
+            self.cursor.execute(command)
+    
+    def create_dynamic_tables(self):
+        """Create dynamic tables for real-time analytics"""
+        
+        dynamic_table = """
+            CREATE OR REPLACE DYNAMIC TABLE real_time_sales
+            TARGET_LAG = '1 minute'
+            WAREHOUSE = 'COMPUTE_WH'
+            AS
+            SELECT 
+                DATE_TRUNC('hour', CURRENT_TIMESTAMP()) as hour_bucket,
+                COUNT(*) as transaction_count,
+                SUM(total_amount) as hourly_revenue
+            FROM fact_sales
+            WHERE sale_timestamp >= DATEADD(hour, -24, CURRENT_TIMESTAMP())
+            GROUP BY DATE_TRUNC('hour', CURRENT_TIMESTAMP());
+        """
+        
+        self.cursor.execute(dynamic_table)
+
+# Usage
+snowflake_adv = SnowflakeAdvanced({
+    'account': 'your-account',
+    'user': 'username',
+    'password': 'password',
+    'warehouse': 'COMPUTE_WH',
+    'database': 'ANALYTICS',
+    'schema': 'PUBLIC'
+})
+
+snowflake_adv.implement_time_travel()
+snowflake_adv.create_secure_views()
+snowflake_adv.implement_zero_copy_cloning()
+```
+
+## Data Warehouse Optimization
+
+### Performance Tuning
+
+```python
+# Data warehouse performance optimization
+class WarehouseOptimization:
+    def __init__(self, engine):
+        self.engine = engine
+    
+    def create_partitioned_tables(self):
+        """Create partitioned tables for better performance"""
+        
+        # Monthly partitioned fact table
+        partitioned_table = """
+            CREATE TABLE fact_sales_partitioned (
+                sale_id BIGINT,
+                sale_date DATE,
+                customer_key INTEGER,
+                product_key INTEGER,
+                total_amount DECIMAL(10,2)
+            ) PARTITION BY RANGE (sale_date);
+            
+            -- Create monthly partitions
+            CREATE TABLE fact_sales_202401 PARTITION OF fact_sales_partitioned
+            FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+            
+            CREATE TABLE fact_sales_202402 PARTITION OF fact_sales_partitioned
+            FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+        """
+        
+        with self.engine.connect() as conn:
+            conn.execute(partitioned_table)
+    
+    def create_indexes(self):
+        """Create appropriate indexes for query performance"""
+        
+        index_commands = [
+            "CREATE INDEX idx_fact_sales_date ON fact_sales(sale_date);",
+            "CREATE INDEX idx_fact_sales_customer ON fact_sales(customer_key);",
+            "CREATE INDEX idx_customer_segment ON dim_customer(customer_segment);",
+            "CREATE INDEX idx_product_category ON dim_product(category);"
+        ]
+        
+        with self.engine.connect() as conn:
+            for command in index_commands:
+                conn.execute(command)
+    
+    def analyze_query_plans(self, query: str):
+        """Analyze query execution plans"""
+        
+        explain_query = f"EXPLAIN (ANALYZE, BUFFERS) {query}"
+        
+        with self.engine.connect() as conn:
+            result = conn.execute(explain_query)
+            return result.fetchall()
+
+# Usage
+optimizer = WarehouseOptimization(engine)
+optimizer.create_partitioned_tables()
+optimizer.create_indexes()
+
+# Analyze a complex query
+complex_query = """
+    SELECT 
+        dc.customer_segment,
+        dp.category,
+        SUM(fs.total_amount) as revenue
+    FROM fact_sales fs
+    JOIN dim_customer dc ON fs.customer_key = dc.customer_key
+    JOIN dim_product dp ON fs.product_key = dp.product_key
+    WHERE fs.sale_date >= '2024-01-01'
+    GROUP BY dc.customer_segment, dp.category;
+"""
+
+query_plan = optimizer.analyze_query_plans(complex_query)
+```
+
+## Data Governance and Security
+
+### Access Control Implementation
+
+```python
+# Data warehouse security and governance
+class DataWarehouseSecurity:
+    def __init__(self, connection):
+        self.conn = connection
+        self.cursor = connection.cursor()
+    
+    def create_role_based_access(self):
+        """Implement role-based access control"""
+        
+        # Create roles
+        roles = [
+            "CREATE ROLE analyst;",
+            "CREATE ROLE manager;", 
+            "CREATE ROLE admin;"
+        ]
+        
+        # Grant permissions
+        permissions = [
+            "GRANT SELECT ON dim_customer TO analyst;",
+            "GRANT SELECT ON fact_sales TO analyst;",
+            "GRANT ALL ON dim_customer TO manager;",
+            "GRANT ALL ON fact_sales TO manager;",
+            "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO admin;"
+        ]
+        
+        for role in roles:
+            self.cursor.execute(role)
+        
+        for permission in permissions:
+            self.cursor.execute(permission)
+        
+        self.conn.commit()
+    
+    def create_audit_tables(self):
+        """Create audit tables for data lineage"""
+        
+        audit_table = """
+            CREATE TABLE audit_log (
+                audit_id SERIAL PRIMARY KEY,
+                table_name VARCHAR(100),
+                operation VARCHAR(10),
+                user_name VARCHAR(100),
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                old_values JSONB,
+                new_values JSONB
+            );
+        """
+        
+        self.cursor.execute(audit_table)
+        self.conn.commit()
+    
+    def implement_data_masking(self):
+        """Implement data masking for sensitive fields"""
+        
+        masked_view = """
+            CREATE OR REPLACE VIEW customer_masked AS
+            SELECT 
+                customer_key,
+                customer_id,
+                CASE 
+                    WHEN CURRENT_USER = 'analyst' 
+                    THEN REGEXP_REPLACE(customer_name, '(.{2}).*', '\\1***')
+                    ELSE customer_name
+                END as customer_name,
+                customer_segment,
+                country
+            FROM dim_customer;
+        """
+        
+        self.cursor.execute(masked_view)
+        self.conn.commit()
+
+# Usage
+security = DataWarehouseSecurity(connection)
+security.create_role_based_access()
+security.create_audit_tables()
+security.implement_data_masking()
+```
+
+## Best Practices
+
+### Design Principles
+- **Start with business requirements** - Design around analytical needs
+- **Choose appropriate schemas** - Star schema for simplicity, snowflake for normalization
+- **Plan for scalability** - Consider data growth and query complexity
+- **Implement proper indexing** - Balance query performance with storage costs
+
+### Performance Optimization
+- **Use columnar storage** - Better compression and query performance
+- **Implement partitioning** - Improve query performance and maintenance
+- **Create materialized views** - Pre-aggregate common queries
+- **Monitor and tune regularly** - Analyze query patterns and optimize accordingly
+
+### Data Governance
+- **Implement access controls** - Role-based permissions and data masking
+- **Maintain data lineage** - Track data sources and transformations
+- **Ensure data quality** - Implement validation and monitoring
+- **Plan for compliance** - Meet regulatory requirements (GDPR, CCPA, etc.)
+
+## Summary
+
+Data warehouses provide the foundation for analytical processing and business intelligence. Key considerations include:
+
+- **Architecture design** - ETL processes, dimensional modeling, and presentation layers
+- **Platform selection** - Cloud-native solutions like Redshift, Snowflake, BigQuery
+- **Performance optimization** - Proper indexing, partitioning, and query tuning
+- **Security and governance** - Access controls, data masking, and audit trails
+
+Modern cloud data warehouses offer advanced features like time travel, zero-copy cloning, and dynamic scaling that enable more flexible and cost-effective analytics.
+
+---
+
+**Next**: Learn about [Data Lakes](/chapters/data-storage/data-lakes) to understand how to store and process unstructured data at scale.

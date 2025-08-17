@@ -1,0 +1,508 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Building a Real-time Analytics Platform
+
+This case study demonstrates building a comprehensive real-time analytics platform that processes streaming data, performs real-time computations, and delivers insights through dashboards and APIs. The platform handles high-volume data ingestion, stream processing, and real-time visualization.
+
+## Real-time Analytics Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Web Applications]
+        DS2[Mobile Apps]
+        DS3[IoT Devices]
+        DS4[External APIs]
+    end
+    
+    subgraph "Data Ingestion"
+        DI1[Apache Kafka]
+        DI2[Kafka Connect]
+        DI3[Schema Registry]
+        DI4[Stream Producers]
+    end
+    
+    subgraph "Stream Processing"
+        SP1[Apache Flink]
+        SP2[Kafka Streams]
+        SP3[Event Processing]
+        SP4[Windowing & Aggregation]
+    end
+    
+    subgraph "Storage Layer"
+        SL1[Apache Cassandra]
+        SL2[Redis Cache]
+        SL3[ClickHouse OLAP]
+        SL4[S3 Data Lake]
+    end
+    
+    subgraph "Analytics & Serving"
+        AS1[Real-time APIs]
+        AS2[Dashboard Service]
+        AS3[Alert Engine]
+        AS4[ML Inference]
+    end
+    
+    DS1 --> DI1
+    DS2 --> DI2
+    DS3 --> DI3
+    DS4 --> DI4
+    
+    DI1 --> SP1
+    DI2 --> SP2
+    DI3 --> SP3
+    DI4 --> SP4
+    
+    SP1 --> SL1
+    SP2 --> SL2
+    SP3 --> SL3
+    SP4 --> SL4
+    
+    SL1 --> AS1
+    SL2 --> AS2
+    SL3 --> AS3
+    SL4 --> AS4
+    
+    style DS1 fill:#e3f2fd
+    style DI1 fill:#e8f5e8
+    style SP1 fill:#fff3e0
+    style SL1 fill:#f3e5f5
+    style AS1 fill:#fce4ec
+`} />
+
+## Real-time Analytics Implementation
+
+### Core Platform Components
+
+```python
+# Real-time Analytics Platform
+import asyncio
+import json
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass, field
+from enum import Enum
+import pandas as pd
+import numpy as np
+from collections import defaultdict, deque
+import uuid
+
+class EventType(Enum):
+    """Event type enumeration"""
+    USER_ACTION = "user_action"
+    SYSTEM_METRIC = "system_metric"
+    BUSINESS_EVENT = "business_event"
+    ERROR_EVENT = "error_event"
+
+class AggregationType(Enum):
+    """Aggregation type enumeration"""
+    COUNT = "count"
+    SUM = "sum"
+    AVERAGE = "average"
+    MIN = "min"
+    MAX = "max"
+
+@dataclass
+class StreamEvent:
+    """Stream event data structure"""
+    event_id: str
+    event_type: EventType
+    timestamp: datetime
+    user_id: Optional[str]
+    session_id: Optional[str]
+    properties: Dict[str, Any]
+    source: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'event_id': self.event_id,
+            'event_type': self.event_type.value,
+            'timestamp': self.timestamp.isoformat(),
+            'user_id': self.user_id,
+            'session_id': self.session_id,
+            'properties': self.properties,
+            'source': self.source
+        }
+
+@dataclass
+class MetricDefinition:
+    """Metric definition for real-time computation"""
+    metric_name: str
+    event_type: EventType
+    aggregation_type: AggregationType
+    window_size_seconds: int
+    groupby_fields: List[str]
+    filter_conditions: Dict[str, Any] = field(default_factory=dict)
+
+class StreamProcessor:
+    """Real-time stream processor"""
+    
+    def __init__(self, storage_backend):
+        self.storage_backend = storage_backend
+        self.metrics_definitions: List[MetricDefinition] = []
+        self.window_data: Dict[str, deque] = defaultdict(lambda: deque())
+        self.logger = logging.getLogger(__name__)
+    
+    def add_metric_definition(self, metric_def: MetricDefinition):
+        """Add metric definition for processing"""
+        self.metrics_definitions.append(metric_def)
+        self.logger.info(f"Added metric definition: {metric_def.metric_name}")
+    
+    def process_event(self, event: StreamEvent):
+        """Process single event against metric definitions"""
+        for metric_def in self.metrics_definitions:
+            if self._matches_event(metric_def, event):
+                self._update_metric_window(metric_def, event)
+    
+    def _matches_event(self, metric_def: MetricDefinition, event: StreamEvent) -> bool:
+        """Check if event matches metric definition"""
+        if event.event_type != metric_def.event_type:
+            return False
+        
+        for field, expected_value in metric_def.filter_conditions.items():
+            if field in event.properties:
+                if event.properties[field] != expected_value:
+                    return False
+        
+        return True
+    
+    def _update_metric_window(self, metric_def: MetricDefinition, event: StreamEvent):
+        """Update sliding window for metric"""
+        window_key = f"{metric_def.metric_name}_{event.event_type.value}"
+        
+        # Add event to window
+        self.window_data[window_key].append({
+            'timestamp': event.timestamp,
+            'event': event,
+            'groupby_values': {
+                field: event.properties.get(field) 
+                for field in metric_def.groupby_fields
+            }
+        })
+        
+        # Remove old events outside window
+        cutoff_time = datetime.now() - timedelta(seconds=metric_def.window_size_seconds)
+        while (self.window_data[window_key] and 
+               self.window_data[window_key][0]['timestamp'] < cutoff_time):
+            self.window_data[window_key].popleft()
+        
+        # Compute and store metric
+        self._compute_and_store_metric(metric_def, window_key)
+    
+    def _compute_and_store_metric(self, metric_def: MetricDefinition, window_key: str):
+        """Compute metric value and store in backend"""
+        window_events = list(self.window_data[window_key])
+        
+        if not window_events:
+            return
+        
+        # Group events by groupby fields
+        grouped_events = defaultdict(list)
+        for event_data in window_events:
+            group_key = tuple(sorted(event_data['groupby_values'].items()))
+            grouped_events[group_key].append(event_data['event'])
+        
+        # Compute metrics for each group
+        for group_key, events in grouped_events.items():
+            metric_value = self._compute_aggregation(metric_def.aggregation_type, events)
+            
+            # Create metric record
+            metric_record = {
+                'metric_name': metric_def.metric_name,
+                'timestamp': datetime.now(),
+                'value': metric_value,
+                'window_size': metric_def.window_size_seconds,
+                'group_dimensions': dict(group_key),
+                'event_count': len(events)
+            }
+            
+            # Store in backend
+            self.storage_backend.store_metric(metric_record)
+    
+    def _compute_aggregation(self, agg_type: AggregationType, events: List[StreamEvent]) -> float:
+        """Compute aggregation value"""
+        if agg_type == AggregationType.COUNT:
+            return len(events)
+        elif agg_type == AggregationType.SUM:
+            return sum(event.properties.get('value', 0) for event in events)
+        elif agg_type == AggregationType.AVERAGE:
+            values = [event.properties.get('value', 0) for event in events]
+            return sum(values) / len(values) if values else 0
+        elif agg_type == AggregationType.MIN:
+            values = [event.properties.get('value', 0) for event in events]
+            return min(values) if values else 0
+        elif agg_type == AggregationType.MAX:
+            values = [event.properties.get('value', 0) for event in events]
+            return max(values) if values else 0
+        else:
+            return 0
+
+class StorageBackend:
+    """Multi-storage backend for analytics data"""
+    
+    def __init__(self):
+        self.metrics_store = {}  # In-memory store for simulation
+        self.time_series_data = defaultdict(list)
+        self.logger = logging.getLogger(__name__)
+    
+    def store_metric(self, metric_record: Dict[str, Any]):
+        """Store metric in backend"""
+        try:
+            # Store current value
+            key = f"{metric_record['metric_name']}:{json.dumps(metric_record['group_dimensions'], sort_keys=True)}"
+            self.metrics_store[key] = metric_record
+            
+            # Store time series data
+            self.time_series_data[metric_record['metric_name']].append(metric_record)
+            
+            # Keep only recent data (last 1000 points)
+            if len(self.time_series_data[metric_record['metric_name']]) > 1000:
+                self.time_series_data[metric_record['metric_name']] = \
+                    self.time_series_data[metric_record['metric_name']][-1000:]
+                    
+        except Exception as e:
+            self.logger.error(f"Error storing metric: {e}")
+    
+    def get_real_time_metrics(self, metric_name: str, 
+                            time_range_minutes: int = 60) -> List[Dict[str, Any]]:
+        """Get real-time metrics"""
+        try:
+            metrics = self.time_series_data.get(metric_name, [])
+            
+            # Filter by time range
+            cutoff_time = datetime.now() - timedelta(minutes=time_range_minutes)
+            filtered_metrics = [
+                m for m in metrics 
+                if m['timestamp'] >= cutoff_time
+            ]
+            
+            return sorted(filtered_metrics, key=lambda x: x['timestamp'], reverse=True)
+            
+        except Exception as e:
+            self.logger.error(f"Error retrieving metrics: {e}")
+            return []
+
+class AnalyticsAPI:
+    """REST API for analytics data"""
+    
+    def __init__(self, storage_backend: StorageBackend):
+        self.storage_backend = storage_backend
+        self.logger = logging.getLogger(__name__)
+    
+    def get_metric_data(self, metric_name: str, 
+                       time_range_minutes: int = 60) -> Dict[str, Any]:
+        """Get metric data"""
+        try:
+            # Get real-time data
+            real_time_data = self.storage_backend.get_real_time_metrics(
+                metric_name, time_range_minutes
+            )
+            
+            if not real_time_data:
+                return {
+                    'metric_name': metric_name,
+                    'data_points': [],
+                    'summary': {'count': 0, 'latest_value': None}
+                }
+            
+            # Process data
+            data_points = []
+            for metric in real_time_data:
+                data_point = {
+                    'timestamp': metric['timestamp'].isoformat(),
+                    'value': metric['value'],
+                    'dimensions': metric['group_dimensions']
+                }
+                data_points.append(data_point)
+            
+            # Calculate summary
+            values = [m['value'] for m in real_time_data]
+            summary = {
+                'count': len(values),
+                'latest_value': values[0] if values else None,
+                'average': sum(values) / len(values) if values else 0,
+                'min': min(values) if values else 0,
+                'max': max(values) if values else 0
+            }
+            
+            return {
+                'metric_name': metric_name,
+                'time_range_minutes': time_range_minutes,
+                'data_points': data_points,
+                'summary': summary
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting metric data: {e}")
+            return {'error': str(e)}
+    
+    def get_dashboard_data(self, dashboard_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Get data for dashboard"""
+        dashboard_data = {
+            'dashboard_name': dashboard_config.get('name', 'Analytics Dashboard'),
+            'generated_at': datetime.now().isoformat(),
+            'widgets': []
+        }
+        
+        for widget_config in dashboard_config.get('widgets', []):
+            widget_data = self.get_metric_data(
+                metric_name=widget_config['metric_name'],
+                time_range_minutes=widget_config.get('time_range_minutes', 60)
+            )
+            
+            widget_data['widget_type'] = widget_config.get('type', 'line_chart')
+            widget_data['title'] = widget_config.get('title', widget_config['metric_name'])
+            
+            dashboard_data['widgets'].append(widget_data)
+        
+        return dashboard_data
+
+# Example implementation
+def create_sample_events() -> List[StreamEvent]:
+    """Create sample events for testing"""
+    events = []
+    
+    # User action events
+    for i in range(100):
+        event = StreamEvent(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.USER_ACTION,
+            timestamp=datetime.now() - timedelta(minutes=np.random.randint(0, 60)),
+            user_id=f"user_{np.random.randint(1, 50)}",
+            session_id=f"session_{np.random.randint(1, 20)}",
+            properties={
+                'action': np.random.choice(['click', 'view', 'purchase', 'search']),
+                'page': np.random.choice(['home', 'product', 'checkout', 'profile']),
+                'value': np.random.uniform(1, 100)
+            },
+            source='web_app'
+        )
+        events.append(event)
+    
+    return events
+
+def example_realtime_analytics_platform():
+    """Example of real-time analytics platform"""
+    
+    print("=== REAL-TIME ANALYTICS PLATFORM SIMULATION ===")
+    
+    # Initialize components
+    storage_backend = StorageBackend()
+    stream_processor = StreamProcessor(storage_backend)
+    analytics_api = AnalyticsAPI(storage_backend)
+    
+    # Add metric definitions
+    user_actions_metric = MetricDefinition(
+        metric_name='user_actions_per_minute',
+        event_type=EventType.USER_ACTION,
+        aggregation_type=AggregationType.COUNT,
+        window_size_seconds=60,
+        groupby_fields=['action', 'page']
+    )
+    
+    stream_processor.add_metric_definition(user_actions_metric)
+    
+    # Create and process sample events
+    sample_events = create_sample_events()
+    print(f"Generated {len(sample_events)} sample events")
+    
+    # Process events
+    for event in sample_events:
+        stream_processor.process_event(event)
+    
+    print("Processed all events through stream processor")
+    
+    # Get analytics data
+    metric_data = analytics_api.get_metric_data('user_actions_per_minute', 60)
+    print(f"\nUser Actions Metrics:")
+    print(f"  Data points: {len(metric_data['data_points'])}")
+    print(f"  Latest value: {metric_data['summary']['latest_value']}")
+    print(f"  Average: {metric_data['summary']['average']:.2f}")
+    
+    # Dashboard configuration
+    dashboard_config = {
+        'name': 'Real-time Analytics Dashboard',
+        'widgets': [
+            {
+                'metric_name': 'user_actions_per_minute',
+                'title': 'User Actions per Minute',
+                'type': 'line_chart',
+                'time_range_minutes': 60
+            }
+        ]
+    }
+    
+    # Get dashboard data
+    dashboard_data = analytics_api.get_dashboard_data(dashboard_config)
+    print(f"\nDashboard Data:")
+    print(f"  Dashboard: {dashboard_data['dashboard_name']}")
+    print(f"  Widgets: {len(dashboard_data['widgets'])}")
+    
+    return storage_backend, analytics_api, dashboard_data
+
+# storage_backend, analytics_api, dashboard_data = example_realtime_analytics_platform()
+```
+
+## Implementation Best Practices
+
+### Architecture Decisions
+
+1. **Event-Driven Design**
+   - Use Apache Kafka for reliable event streaming
+   - Implement schema registry for event structure management
+   - Design events with proper partitioning keys
+   - Handle event ordering and deduplication
+
+2. **Stream Processing Strategy**
+   - Use Apache Flink for complex event processing
+   - Implement sliding windows for time-based aggregations
+   - Handle late-arriving events and watermarks
+   - Design for exactly-once processing semantics
+
+3. **Storage Architecture**
+   - Redis for real-time metric caching
+   - Cassandra for time-series data storage
+   - ClickHouse for analytical queries
+   - S3 for long-term data archival
+
+4. **API and Serving Layer**
+   - RESTful APIs for dashboard integration
+   - WebSocket connections for real-time updates
+   - GraphQL for flexible data queries
+   - Caching strategies for frequently accessed data
+
+## Performance Considerations
+
+### Scalability Patterns
+
+1. **Horizontal Scaling**
+   - Partition Kafka topics by user ID or session ID
+   - Scale stream processing with parallel instances
+   - Use consistent hashing for data distribution
+   - Implement auto-scaling based on throughput
+
+2. **Optimization Techniques**
+   - Batch processing for efficiency
+   - Connection pooling for database access
+   - Compression for data transmission
+   - Indexing strategies for fast queries
+
+## Summary
+
+Building a Real-time Analytics Platform involves:
+
+- **Event Streaming** - Kafka-based ingestion with schema management
+- **Stream Processing** - Real-time computation with windowing and aggregation
+- **Multi-Storage Architecture** - Optimized storage for different access patterns
+- **API Layer** - RESTful services for dashboard and application integration
+
+Key components:
+- Event-driven architecture with proper partitioning
+- Stream processing with sliding windows
+- Multi-tier storage for different use cases
+- Real-time APIs with caching and optimization
+
+---
+
+**Next**: Learn about [Data Migration Strategies](/chapters/case-studies/migration-strategies) for large-scale data migrations.

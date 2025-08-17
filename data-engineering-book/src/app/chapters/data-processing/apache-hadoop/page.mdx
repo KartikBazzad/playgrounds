@@ -1,0 +1,734 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Apache Hadoop
+
+Apache Hadoop is an open-source framework for distributed storage and processing of large datasets across clusters of computers. It provides a reliable, scalable, and cost-effective solution for big data processing using commodity hardware.
+
+## Hadoop Ecosystem
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Databases]
+        DS2[Log Files]
+        DS3[Streaming Data]
+        DS4[Web Services]
+    end
+    
+    subgraph "Data Ingestion"
+        DI1[Sqoop]
+        DI2[Flume]
+        DI3[Kafka]
+        DI4[NiFi]
+    end
+    
+    subgraph "Hadoop Core"
+        HC1[HDFS - Storage]
+        HC2[YARN - Resource Manager]
+        HC3[MapReduce - Processing]
+    end
+    
+    subgraph "Processing Frameworks"
+        PF1[Spark]
+        PF2[Hive]
+        PF3[Pig]
+        PF4[HBase]
+    end
+    
+    DS1 --> DI1
+    DS2 --> DI2
+    DS3 --> DI3
+    DS4 --> DI4
+    
+    DI1 --> HC1
+    DI2 --> HC1
+    DI3 --> HC1
+    DI4 --> HC1
+    
+    HC1 --> HC2
+    HC2 --> HC3
+    HC2 --> PF1
+    HC2 --> PF2
+    HC2 --> PF3
+    HC2 --> PF4
+    
+    style HC1 fill:#e3f2fd
+    style HC2 fill:#e8f5e8
+    style HC3 fill:#fff3e0
+`} />
+
+## HDFS - Hadoop Distributed File System
+
+### HDFS Operations and Management
+
+```python
+# HDFS operations using Python
+from hdfs import InsecureClient
+import pandas as pd
+from typing import List, Dict, Any, Optional
+import logging
+import os
+from datetime import datetime
+
+class HDFSManager:
+    """HDFS file system manager"""
+    
+    def __init__(self, namenode_url: str = "http://localhost:9870", user: str = "hadoop"):
+        """Initialize HDFS client"""
+        
+        try:
+            self.client = InsecureClient(namenode_url, user=user)
+            self.logger = logging.getLogger(__name__)
+            self.logger.info(f"Connected to HDFS at {namenode_url}")
+        except Exception as e:
+            self.logger.error(f"Failed to connect to HDFS: {e}")
+            raise
+    
+    def create_directory(self, path: str, permission: str = "755") -> bool:
+        """Create directory in HDFS"""
+        
+        try:
+            self.client.makedirs(path, permission=int(permission, 8))
+            self.logger.info(f"Directory created: {path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create directory {path}: {e}")
+            return False
+    
+    def upload_file(self, local_path: str, hdfs_path: str, overwrite: bool = False) -> bool:
+        """Upload file to HDFS"""
+        
+        try:
+            self.client.upload(hdfs_path, local_path, overwrite=overwrite)
+            self.logger.info(f"File uploaded: {local_path} -> {hdfs_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to upload file: {e}")
+            return False
+    
+    def download_file(self, hdfs_path: str, local_path: str) -> bool:
+        """Download file from HDFS"""
+        
+        try:
+            self.client.download(hdfs_path, local_path)
+            self.logger.info(f"File downloaded: {hdfs_path} -> {local_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to download file: {e}")
+            return False
+    
+    def list_directory(self, path: str = "/") -> List[Dict]:
+        """List directory contents"""
+        
+        try:
+            contents = self.client.list(path, status=True)
+            
+            files_info = []
+            for item in contents:
+                file_info = {
+                    'name': item[0],
+                    'type': item[1]['type'],
+                    'size': item[1].get('length', 0),
+                    'replication': item[1].get('replication', 0),
+                    'block_size': item[1].get('blockSize', 0),
+                    'owner': item[1].get('owner', ''),
+                    'group': item[1].get('group', '')
+                }
+                files_info.append(file_info)
+            
+            return files_info
+            
+        except Exception as e:
+            self.logger.error(f"Failed to list directory {path}: {e}")
+            return []
+    
+    def read_file(self, hdfs_path: str, encoding: str = "utf-8") -> Optional[str]:
+        """Read file content from HDFS"""
+        
+        try:
+            with self.client.read(hdfs_path, encoding=encoding) as reader:
+                content = reader.read()
+            
+            self.logger.info(f"File read: {hdfs_path}")
+            return content
+            
+        except Exception as e:
+            self.logger.error(f"Failed to read file {hdfs_path}: {e}")
+            return None
+    
+    def write_file(self, hdfs_path: str, content: str, encoding: str = "utf-8", 
+                  overwrite: bool = False) -> bool:
+        """Write content to HDFS file"""
+        
+        try:
+            with self.client.write(hdfs_path, encoding=encoding, overwrite=overwrite) as writer:
+                writer.write(content)
+            
+            self.logger.info(f"File written: {hdfs_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to write file {hdfs_path}: {e}")
+            return False
+    
+    def delete_file(self, hdfs_path: str, recursive: bool = False) -> bool:
+        """Delete file or directory from HDFS"""
+        
+        try:
+            self.client.delete(hdfs_path, recursive=recursive)
+            self.logger.info(f"Deleted: {hdfs_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to delete {hdfs_path}: {e}")
+            return False
+
+class HDFSDataProcessor:
+    """HDFS data processing utilities"""
+    
+    def __init__(self, hdfs_manager: HDFSManager):
+        self.hdfs = hdfs_manager
+        self.logger = logging.getLogger(__name__)
+    
+    def upload_dataframe(self, df: pd.DataFrame, hdfs_path: str, format: str = "csv") -> bool:
+        """Upload pandas DataFrame to HDFS"""
+        
+        try:
+            # Create temporary local file
+            temp_file = f"/tmp/temp_data_{datetime.now().timestamp()}.{format}"
+            
+            if format == "csv":
+                df.to_csv(temp_file, index=False)
+            elif format == "json":
+                df.to_json(temp_file, orient="records", lines=True)
+            elif format == "parquet":
+                df.to_parquet(temp_file)
+            else:
+                raise ValueError(f"Unsupported format: {format}")
+            
+            # Upload to HDFS
+            success = self.hdfs.upload_file(temp_file, hdfs_path, overwrite=True)
+            
+            # Clean up temporary file
+            os.remove(temp_file)
+            
+            if success:
+                self.logger.info(f"DataFrame uploaded to {hdfs_path}")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Failed to upload DataFrame: {e}")
+            return False
+    
+    def read_csv_to_dataframe(self, hdfs_path: str) -> Optional[pd.DataFrame]:
+        """Read CSV file from HDFS to pandas DataFrame"""
+        
+        try:
+            # Download to temporary file
+            temp_file = f"/tmp/temp_read_{datetime.now().timestamp()}.csv"
+            
+            if self.hdfs.download_file(hdfs_path, temp_file):
+                df = pd.read_csv(temp_file)
+                os.remove(temp_file)
+                
+                self.logger.info(f"CSV read from {hdfs_path}, shape: {df.shape}")
+                return df
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Failed to read CSV from {hdfs_path}: {e}")
+            return None
+    
+    def process_large_file(self, hdfs_path: str, chunk_size: int = 10000,
+                          processor_func: callable = None) -> bool:
+        """Process large file in chunks"""
+        
+        try:
+            with self.hdfs.client.read(hdfs_path) as reader:
+                chunk_num = 0
+                
+                while True:
+                    # Read chunk
+                    lines = []
+                    for _ in range(chunk_size):
+                        line = reader.readline()
+                        if not line:
+                            break
+                        lines.append(line.decode('utf-8').strip())
+                    
+                    if not lines:
+                        break
+                    
+                    # Process chunk
+                    if processor_func:
+                        processed_data = processor_func(lines)
+                        
+                        # Save processed chunk
+                        output_path = f"{hdfs_path}_processed_chunk_{chunk_num}"
+                        self.hdfs.write_file(output_path, '\n'.join(processed_data), overwrite=True)
+                    
+                    chunk_num += 1
+                    self.logger.info(f"Processed chunk {chunk_num}")
+            
+            self.logger.info(f"File processing completed: {chunk_num} chunks")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to process large file: {e}")
+            return False
+
+# Example usage
+def hdfs_examples():
+    """HDFS usage examples"""
+    
+    # Initialize HDFS manager
+    hdfs_manager = HDFSManager("http://localhost:9870")
+    data_processor = HDFSDataProcessor(hdfs_manager)
+    
+    # Create directories
+    hdfs_manager.create_directory("/user/data/raw")
+    hdfs_manager.create_directory("/user/data/processed")
+    
+    # Sample data
+    sample_data = pd.DataFrame({
+        'id': range(1, 1001),
+        'name': [f'user_{i}' for i in range(1, 1001)],
+        'value': [i * 10 for i in range(1, 1001)],
+        'category': ['A' if i % 2 == 0 else 'B' for i in range(1, 1001)]
+    })
+    
+    # Upload DataFrame
+    data_processor.upload_dataframe(sample_data, "/user/data/raw/sample_data.csv")
+    
+    # List directory contents
+    files = hdfs_manager.list_directory("/user/data/raw")
+    print("Files in /user/data/raw:")
+    for file_info in files:
+        print(f"  {file_info['name']} ({file_info['size']} bytes)")
+
+# hdfs_examples()
+```
+
+## MapReduce Programming
+
+### MapReduce Job Implementation
+
+```python
+# MapReduce programming with Python
+from mrjob.job import MRJob
+from mrjob.step import MRStep
+import json
+import re
+from collections import defaultdict
+from typing import Iterator, Tuple, Any
+
+class WordCountMR(MRJob):
+    """Word count using MapReduce"""
+    
+    def mapper(self, _, line: str) -> Iterator[Tuple[str, int]]:
+        """Map phase: emit word counts"""
+        
+        # Clean and split line into words
+        words = re.findall(r'\w+', line.lower())
+        
+        for word in words:
+            if len(word) > 2:  # Filter short words
+                yield word, 1
+    
+    def reducer(self, word: str, counts: Iterator[int]) -> Iterator[Tuple[str, int]]:
+        """Reduce phase: sum word counts"""
+        
+        total_count = sum(counts)
+        yield word, total_count
+
+class SalesAnalysisMR(MRJob):
+    """Sales analysis using MapReduce"""
+    
+    def configure_args(self):
+        """Configure command line arguments"""
+        super(SalesAnalysisMR, self).configure_args()
+        self.add_passthru_arg('--analysis-type', default='revenue',
+                            help='Type of analysis: revenue, quantity, or customer')
+    
+    def mapper(self, _, line: str) -> Iterator[Tuple[str, dict]]:
+        """Map phase: parse sales records"""
+        
+        try:
+            # Parse JSON sales record
+            record = json.loads(line)
+            
+            analysis_type = self.options.analysis_type
+            
+            if analysis_type == 'revenue':
+                # Group by product for revenue analysis
+                yield record['product_id'], {
+                    'revenue': record['amount'],
+                    'quantity': record['quantity']
+                }
+                
+            elif analysis_type == 'customer':
+                # Group by customer for customer analysis
+                yield record['customer_id'], {
+                    'revenue': record['amount'],
+                    'orders': 1
+                }
+                
+        except (json.JSONDecodeError, KeyError) as e:
+            # Skip malformed records
+            pass
+    
+    def reducer(self, key: str, values: Iterator[dict]) -> Iterator[Tuple[str, dict]]:
+        """Reduce phase: aggregate sales metrics"""
+        
+        total_revenue = 0
+        total_quantity = 0
+        total_orders = 0
+        
+        for value in values:
+            total_revenue += value.get('revenue', 0)
+            total_quantity += value.get('quantity', 0)
+            total_orders += value.get('orders', 0)
+        
+        result = {
+            'total_revenue': total_revenue,
+            'total_quantity': total_quantity,
+            'total_orders': total_orders
+        }
+        
+        if total_orders > 0:
+            result['avg_order_value'] = total_revenue / total_orders
+        
+        yield key, result
+
+class LogAnalysisMR(MRJob):
+    """Web log analysis using MapReduce"""
+    
+    def steps(self):
+        """Define multi-step MapReduce job"""
+        
+        return [
+            MRStep(mapper=self.mapper_parse_logs,
+                  reducer=self.reducer_aggregate_by_ip),
+            MRStep(mapper=self.mapper_extract_metrics,
+                  reducer=self.reducer_top_ips)
+        ]
+    
+    def mapper_parse_logs(self, _, line: str) -> Iterator[Tuple[str, dict]]:
+        """Parse web server logs"""
+        
+        # Simple log parsing (Apache Common Log Format)
+        log_pattern = r'(\S+) \S+ \S+ \[(.*?)\] "(\S+) (\S+) (\S+)" (\d+) (\d+)'
+        match = re.match(log_pattern, line)
+        
+        if match:
+            ip, timestamp, method, url, protocol, status, size = match.groups()
+            
+            yield ip, {
+                'requests': 1,
+                'bytes': int(size) if size != '-' else 0,
+                'status_codes': {status: 1},
+                'methods': {method: 1}
+            }
+    
+    def reducer_aggregate_by_ip(self, ip: str, values: Iterator[dict]) -> Iterator[Tuple[str, dict]]:
+        """Aggregate metrics by IP address"""
+        
+        total_requests = 0
+        total_bytes = 0
+        status_codes = defaultdict(int)
+        methods = defaultdict(int)
+        
+        for value in values:
+            total_requests += value['requests']
+            total_bytes += value['bytes']
+            
+            for status, count in value['status_codes'].items():
+                status_codes[status] += count
+            
+            for method, count in value['methods'].items():
+                methods[method] += count
+        
+        yield ip, {
+            'total_requests': total_requests,
+            'total_bytes': total_bytes,
+            'status_codes': dict(status_codes),
+            'methods': dict(methods)
+        }
+    
+    def mapper_extract_metrics(self, ip: str, metrics: dict) -> Iterator[Tuple[str, Tuple[str, int]]]:
+        """Extract metrics for ranking"""
+        
+        # Emit metrics for top-N analysis
+        yield 'top_requests', (ip, metrics['total_requests'])
+        yield 'top_bytes', (ip, metrics['total_bytes'])
+    
+    def reducer_top_ips(self, metric_type: str, values: Iterator[Tuple[str, int]]) -> Iterator[Tuple[str, list]]:
+        """Find top IPs by metric"""
+        
+        # Sort and get top 10
+        sorted_values = sorted(values, key=lambda x: x[1], reverse=True)
+        top_10 = sorted_values[:10]
+        
+        yield metric_type, top_10
+
+# Example usage
+def mapreduce_examples():
+    """Run MapReduce examples"""
+    
+    # Word count example
+    print("=== Word Count Example ===")
+    word_count_job = WordCountMR()
+    
+    # Sales analysis example
+    print("=== Sales Analysis Example ===")
+    sales_job = SalesAnalysisMR()
+    
+    # Log analysis example
+    print("=== Log Analysis Example ===")
+    log_job = LogAnalysisMR()
+    
+    print("MapReduce jobs defined. Run with:")
+    print("python script.py input_file.txt")
+
+# mapreduce_examples()
+```
+
+## Hive Data Warehousing
+
+### Hive Query Processing
+
+```python
+# Hive integration and SQL-like processing
+from pyhive import hive
+import pandas as pd
+from typing import List, Dict, Any, Optional
+import logging
+
+class HiveManager:
+    """Hive data warehouse manager"""
+    
+    def __init__(self, host: str = "localhost", port: int = 10000, 
+                 username: str = "hadoop", database: str = "default"):
+        """Initialize Hive connection"""
+        
+        try:
+            self.connection = hive.Connection(
+                host=host,
+                port=port,
+                username=username,
+                database=database
+            )
+            self.cursor = self.connection.cursor()
+            self.logger = logging.getLogger(__name__)
+            self.logger.info(f"Connected to Hive at {host}:{port}")
+        except Exception as e:
+            self.logger.error(f"Failed to connect to Hive: {e}")
+            raise
+    
+    def execute_query(self, query: str) -> Optional[List[tuple]]:
+        """Execute Hive query"""
+        
+        try:
+            self.cursor.execute(query)
+            results = self.cursor.fetchall()
+            self.logger.info(f"Query executed successfully")
+            return results
+        except Exception as e:
+            self.logger.error(f"Query execution failed: {e}")
+            return None
+    
+    def create_table(self, table_name: str, schema: Dict[str, str], 
+                    location: str = None, format: str = "TEXTFILE") -> bool:
+        """Create Hive table"""
+        
+        try:
+            # Build column definitions
+            columns = ", ".join([f"{col} {dtype}" for col, dtype in schema.items()])
+            
+            # Build CREATE TABLE statement
+            create_sql = f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                {columns}
+            )
+            """
+            
+            if format == "PARQUET":
+                create_sql += " STORED AS PARQUET"
+            elif format == "ORC":
+                create_sql += " STORED AS ORC"
+            else:
+                create_sql += " ROW FORMAT DELIMITED FIELDS TERMINATED BY ','"
+            
+            if location:
+                create_sql += f" LOCATION '{location}'"
+            
+            self.cursor.execute(create_sql)
+            self.logger.info(f"Table {table_name} created successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create table {table_name}: {e}")
+            return False
+    
+    def load_data(self, table_name: str, file_path: str, overwrite: bool = False) -> bool:
+        """Load data into Hive table"""
+        
+        try:
+            overwrite_clause = "OVERWRITE" if overwrite else "INTO"
+            
+            load_sql = f"""
+            LOAD DATA INPATH '{file_path}' 
+            {overwrite_clause} TABLE {table_name}
+            """
+            
+            self.cursor.execute(load_sql)
+            self.logger.info(f"Data loaded into {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to load data into {table_name}: {e}")
+            return False
+    
+    def query_to_dataframe(self, query: str) -> Optional[pd.DataFrame]:
+        """Execute query and return pandas DataFrame"""
+        
+        try:
+            self.cursor.execute(query)
+            
+            # Get column names
+            columns = [desc[0] for desc in self.cursor.description]
+            
+            # Fetch data
+            data = self.cursor.fetchall()
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=columns)
+            self.logger.info(f"Query returned DataFrame with shape {df.shape}")
+            
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Failed to execute query: {e}")
+            return None
+    
+    def show_tables(self) -> List[str]:
+        """Show all tables in current database"""
+        
+        try:
+            self.cursor.execute("SHOW TABLES")
+            tables = [row[0] for row in self.cursor.fetchall()]
+            return tables
+        except Exception as e:
+            self.logger.error(f"Failed to show tables: {e}")
+            return []
+    
+    def describe_table(self, table_name: str) -> Optional[List[tuple]]:
+        """Describe table structure"""
+        
+        try:
+            self.cursor.execute(f"DESCRIBE {table_name}")
+            description = self.cursor.fetchall()
+            return description
+        except Exception as e:
+            self.logger.error(f"Failed to describe table {table_name}: {e}")
+            return None
+    
+    def close(self):
+        """Close Hive connection"""
+        
+        if self.cursor:
+            self.cursor.close()
+        if self.connection:
+            self.connection.close()
+
+# Example Hive operations
+def hive_examples():
+    """Hive usage examples"""
+    
+    hive_manager = HiveManager()
+    
+    # Create sample table
+    schema = {
+        'customer_id': 'INT',
+        'name': 'STRING',
+        'email': 'STRING',
+        'signup_date': 'DATE',
+        'total_spent': 'DECIMAL(10,2)'
+    }
+    
+    hive_manager.create_table('customers', schema)
+    
+    # Sample analytics queries
+    queries = [
+        "SELECT COUNT(*) as total_customers FROM customers",
+        "SELECT AVG(total_spent) as avg_spending FROM customers",
+        "SELECT name, total_spent FROM customers ORDER BY total_spent DESC LIMIT 10"
+    ]
+    
+    for query in queries:
+        result = hive_manager.execute_query(query)
+        print(f"Query: {query}")
+        print(f"Result: {result}\n")
+    
+    hive_manager.close()
+
+# hive_examples()
+```
+
+## Best Practices
+
+### Hadoop Development Guidelines
+
+1. **HDFS Management**
+   - Use appropriate block sizes for your data
+   - Monitor disk usage and replication
+   - Implement proper backup strategies
+
+2. **MapReduce Optimization**
+   - Minimize data movement between mappers and reducers
+   - Use combiners when possible
+   - Optimize input splits and output formats
+
+3. **Performance Tuning**
+   - Configure memory and CPU resources appropriately
+   - Use compression for large datasets
+   - Monitor job execution and identify bottlenecks
+
+4. **Data Organization**
+   - Partition data logically
+   - Use appropriate file formats (Parquet, ORC)
+   - Implement data lifecycle management
+
+## Common Use Cases
+
+### Business Applications
+- **Data warehousing** - Large-scale analytics and reporting
+- **Log processing** - Web server and application log analysis
+- **ETL pipelines** - Extract, transform, and load operations
+- **Batch processing** - Scheduled data processing jobs
+
+### Technical Benefits
+- **Fault tolerance** - Automatic handling of node failures
+- **Scalability** - Linear scaling with commodity hardware
+- **Cost effectiveness** - Lower cost per TB compared to traditional systems
+- **Ecosystem integration** - Rich ecosystem of tools and frameworks
+
+## Summary
+
+Apache Hadoop provides:
+
+- **Distributed storage** - HDFS for reliable data storage
+- **Resource management** - YARN for cluster resource allocation
+- **Batch processing** - MapReduce for large-scale data processing
+- **SQL interface** - Hive for data warehousing and analytics
+
+Key components:
+- HDFS for distributed file storage
+- MapReduce for parallel processing
+- YARN for resource management
+- Hive for SQL-like queries
+
+---
+
+**Next**: Learn about [Dask and Ray](/chapters/data-processing/dask-ray) for Python-native distributed computing.

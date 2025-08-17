@@ -1,0 +1,922 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Apache Kafka Fundamentals
+
+Apache Kafka is a distributed streaming platform that serves as the backbone for many real-time data processing systems. It provides high-throughput, fault-tolerant messaging and stream processing capabilities, making it ideal for building real-time data pipelines and streaming applications.
+
+## Why Kafka?
+
+- **High Throughput**: Handle hundreds of thousands of messages per second
+- **Scalability**: Horizontally scalable by adding more brokers
+- **Fault Tolerance**: Data replication across multiple brokers
+- **Durability**: Messages are persisted to disk and replicated
+- **Low Latency**: End-to-end latency as low as 2ms
+
+## Kafka Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Kafka Cluster"
+        subgraph "Broker 1"
+            P1[Partition 0]
+            P2[Partition 1]
+        end
+        
+        subgraph "Broker 2"
+            P3[Partition 2]
+            P4[Partition 0 Replica]
+        end
+        
+        subgraph "Broker 3"
+            P5[Partition 1 Replica]
+            P6[Partition 2 Replica]
+        end
+    end
+    
+    subgraph "Producers"
+        PROD1[Web Server]
+        PROD2[Mobile App]
+        PROD3[IoT Devices]
+    end
+    
+    subgraph "Consumers"
+        CG1[Real-time Analytics]
+        CG2[Data Lake]
+        CG3[ML Models]
+    end
+    
+    PROD1 --> P1
+    PROD2 --> P3
+    PROD3 --> P1
+    
+    P1 --> CG1
+    P2 --> CG1
+    P3 --> CG2
+    P1 --> CG3
+    
+    style P1 fill:#e3f2fd
+    style P3 fill:#e8f5e8
+    style CG1 fill:#fff3e0
+`} />
+
+## Core Concepts
+
+### Topics and Partitions
+- **Topics**: Categories or feed names to which records are published
+- **Partitions**: Topics are split into partitions for parallel consumption
+- **Offsets**: Unique identifier for each message within a partition
+- **Replication Factor**: Number of copies of each partition across brokers
+
+### Producers and Consumers
+- **Producers**: Publish messages to topics
+- **Consumers**: Subscribe to topics and process messages
+- **Consumer Groups**: Group of consumers that work together to consume topics
+
+### Brokers and Clusters
+- **Broker**: Single Kafka server in a Kafka cluster
+- **Cluster**: Collection of brokers working together
+- **Controller**: One of the brokers that manages partition leadership and cluster state
+
+## Real-world Use Cases
+
+1. **Real-time Analytics**
+   - Process and analyze data in real-time
+   - Generate real-time dashboards and alerts
+
+2. **Event Sourcing**
+   - Capture all changes to application state as a sequence of events
+   - Rebuild application state by replaying events
+
+3. **Log Aggregation**
+   - Collect and process logs from multiple services
+   - Centralized logging and monitoring
+
+4. **Stream Processing**
+   - Process data streams with frameworks like Kafka Streams or ksqlDB
+   - Implement complex event processing
+
+## Best Practices
+
+### Producer Configuration
+```python
+from kafka import KafkaProducer
+
+producer = KafkaProducer(
+    bootstrap_servers=['kafka1:9092', 'kafka2:9092'],
+    acks='all',  # Wait for all in-sync replicas to acknowledge
+    retries=3,    # Number of retries for failed requests
+    compression_type='snappy',  # Compress messages
+    batch_size=16384,  # Batch size in bytes
+    linger_ms=100,     # Wait up to 100ms for batching
+    buffer_memory=33554432  # 32MB buffer
+)
+```
+
+### Consumer Configuration
+```python
+from kafka import KafkaConsumer
+
+consumer = KafkaConsumer(
+    'user_events',
+    bootstrap_servers=['kafka1:9092', 'kafka2:9092'],
+    group_id='event_processor',
+    auto_offset_reset='earliest',  # Start from beginning if no offset
+    enable_auto_commit=True,
+    auto_commit_interval_ms=1000,  # Commit every second
+    max_poll_records=100,         # Max records per poll
+    session_timeout_ms=30000,     # 30s to detect consumer failure
+    heartbeat_interval_ms=10000    # 10s between heartbeats
+)
+```
+
+### Monitoring and Operations
+- Track key metrics:
+  - Message rate (in/out)
+  - Request latencies
+  - Consumer lag
+  - Disk usage
+  - Network throughput
+
+### Security Best Practices
+- Enable SSL/TLS for encryption
+- Use SASL for authentication
+- Implement ACLs for fine-grained access control
+- Regularly rotate SSL certificates and credentials
+
+## Practical Example: Real-time User Activity Tracking
+
+Let's implement a real-time user activity tracking system using Kafka. This example demonstrates how to track user actions on a website and process them in real-time.
+
+### 1. Setting Up the Environment
+
+First, let's set up a local Kafka environment using Docker:
+
+```bash
+# docker-compose.yml
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+```
+
+### 2. Implementing the Producer
+
+This producer simulates a real-world e-commerce application generating user activity events. It demonstrates key Kafka producer concepts like message keys for partitioning, serialization, and delivery guarantees.
+
+```python
+# producer.py
+from kafka import KafkaProducer
+import json
+import time
+from datetime import datetime
+import random
+import uuid
+
+class UserActivityProducer:
+    """
+    Simulates user activity events for an e-commerce platform
+    Demonstrates producer patterns for real-time event streaming
+    """
+    def __init__(self, bootstrap_servers: list):
+        self.producer = KafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),  # Convert dict to JSON
+            acks='all',    # Wait for all replicas to acknowledge (strongest durability)
+            retries=3      # Retry failed sends up to 3 times
+        )
+        self.topic = 'user_activities'
+
+    def generate_user_activity(self):
+        """
+        Generate realistic user activity data
+        Simulates various user interactions on an e-commerce site
+        """
+        user_id = f"user_{random.randint(1, 1000)}"
+        activities = ['page_view', 'click', 'login', 'logout', 'purchase', 'add_to_cart']
+        
+        return {
+            'user_id': user_id,
+            'activity': random.choice(activities),
+            'page_url': f"https://example.com/{random.choice(['home', 'products', 'about'])}",
+            'timestamp': datetime.utcnow().isoformat(),
+            'session_id': str(uuid.uuid4()),
+            'device': random.choice(['mobile', 'desktop', 'tablet']),
+            'location': random.choice(['US', 'UK', 'CA', 'AU', 'IN'])
+        }
+
+    def run(self, num_messages: int = 1000):
+        """
+        Produce sample user activity events to Kafka
+        Uses user_id as partition key to ensure ordered processing per user
+        """
+        for _ in range(num_messages):
+            activity = self.generate_user_activity()
+            
+            # Key insight: Using user_id as key ensures all events for a user
+            # go to the same partition, maintaining order for that user
+            self.producer.send(
+                self.topic,
+                key=activity['user_id'].encode('utf-8'),  # Partition key
+                value=activity                            # Message payload
+            )
+            
+            # Simulate realistic traffic patterns with random delays
+            time.sleep(random.uniform(0.1, 0.5))
+
+        # Ensure all messages are sent before exiting
+        self.producer.flush()
+
+if __name__ == "__main__":
+    producer = UserActivityProducer(['localhost:9092'])
+    producer.run(1000)
+```
+
+This producer creates realistic user activity data and uses proper partitioning to ensure events from the same user are processed in order.
+
+### 3. Implementing the Consumer
+
+This consumer demonstrates stateful stream processing by tracking user sessions and implementing business logic for different event types. It shows how to handle consumer groups, session management, and real-time analytics.
+
+```python
+# consumer.py
+from kafka import KafkaConsumer
+import json
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+class UserActivityProcessor:
+    """
+    Processes user activity events from Kafka
+    Implements session tracking and real-time analytics
+    """
+    def __init__(self, bootstrap_servers: list, group_id: str):
+        self.consumer = KafkaConsumer(
+            'user_activities',
+            bootstrap_servers=bootstrap_servers,
+            group_id=group_id,                    # Consumer group for load balancing
+            auto_offset_reset='earliest',         # Start from beginning if no offset
+            enable_auto_commit=True,              # Automatically commit offsets
+            value_deserializer=lambda x: json.loads(x.decode('utf-8'))  # Parse JSON
+        )
+        
+        # In-memory session tracking (in production, use Redis or database)
+        self.user_sessions = defaultdict(dict)
+        self.session_timeout = timedelta(minutes=30)
+
+    def process_activity(self, activity: dict):
+        """
+        Process a single user activity event
+        Maintains session state and triggers business logic
+        """
+        user_id = activity['user_id']
+        session_id = activity['session_id']
+        
+        # Initialize or update session tracking
+        if user_id not in self.user_sessions or session_id not in self.user_sessions[user_id]:
+            self.user_sessions[user_id][session_id] = {
+                'start_time': datetime.utcnow(),
+                'last_activity': datetime.utcnow(),
+                'activities': [],
+                'page_views': set()
+            }
+        
+        # Update session with new activity
+        session = self.user_sessions[user_id][session_id]
+        session['last_activity'] = datetime.utcnow()
+        session['activities'].append(activity)
+        session['page_views'].add(activity['page_url'])
+        
+        # Route to specific handlers based on activity type
+        if activity['activity'] == 'purchase':
+            self._process_purchase(activity, session)
+        elif activity['activity'] == 'add_to_cart':
+            self._process_add_to_cart(activity, session)
+            
+        # Clean up old sessions to prevent memory leaks
+        self._cleanup_old_sessions()
+
+    def _process_purchase(self, activity: dict, session: dict):
+        """
+        Handle purchase events - could trigger recommendations, 
+        fraud detection, or inventory updates
+        """
+        print(f"Purchase detected - User: {activity['user_id']}, "
+              f"Session: {activity['session_id']}, "
+              f"Pages visited: {len(session['page_views'])}")
+
+    def _process_add_to_cart(self, activity: dict, session: dict):
+        """
+        Handle add to cart events - could trigger abandoned cart emails
+        or real-time personalization
+        """
+        print(f"Item added to cart - User: {activity['user_id']}, "
+              f"Page: {activity['page_url']}")
+
+    def _cleanup_old_sessions(self):
+        """
+        Remove inactive sessions to prevent memory leaks
+        In production, this would be handled by a separate cleanup process
+        """
+        current_time = datetime.utcnow()
+        for user_id in list(self.user_sessions.keys()):
+            for session_id in list(self.user_sessions[user_id].keys()):
+                session = self.user_sessions[user_id][session_id]
+                if current_time - session['last_activity'] > self.session_timeout:
+                    # Process completed session
+                    self._process_session_complete(user_id, session_id, session)
+                    del self.user_sessions[user_id][session_id]
+            
+            # Remove user if no active sessions
+            if not self.user_sessions[user_id]:
+                del self.user_sessions[user_id]
+
+    def _process_session_complete(self, user_id: str, session_id: str, session: dict):
+        """Process completed user session"""
+        duration = session['last_activity'] - session['start_time']
+        print(f"Session ended - User: {user_id}, "
+              f"Session: {session_id}, "
+              f"Duration: {duration}, "
+              f"Pages visited: {len(session['page_views'])}")
+
+    def run(self):
+        """Start consuming messages"""
+        try:
+            for message in self.consumer:
+                try:
+                    self.process_activity(message.value)
+                except Exception as e:
+                    print(f"Error processing message: {e}")
+        except KeyboardInterrupt:
+            print("Stopping consumer...")
+        finally:
+            self.consumer.close()
+
+if __name__ == "__main__":
+    processor = UserActivityProcessor(
+        bootstrap_servers=['localhost:9092'],
+        group_id='user_activity_processor'
+    )
+    processor.run()
+```
+
+### 4. Running the Example
+
+1. Start the Kafka environment:
+   ```bash
+   docker-compose up -d
+   ```
+
+2. Create the topic:
+   ```bash
+   docker exec -it kafka \
+     kafka-topics --create \
+     --topic user_activities \
+     --partitions 3 \
+     --replication-factor 1 \
+     --bootstrap-server localhost:9092
+   ```
+
+3. Run the producer in one terminal:
+   ```bash
+   python producer.py
+   ```
+
+4. Run the consumer in another terminal:
+   ```bash
+   python consumer.py
+   ```
+
+### 5. Key Learnings
+
+1. **Partitioning Strategy**: Using user_id as the message key ensures all activities for a user go to the same partition, maintaining order.
+
+2. **Session Management**: The consumer tracks user sessions and processes them when they time out.
+
+3. **Error Handling**: The consumer includes basic error handling to prevent crashes on malformed messages.
+
+4. **Scalability**: Multiple consumer instances can be run with the same group_id to scale processing.
+
+5. **State Management**: The example demonstrates maintaining state (user sessions) while processing a stream of events.
+
+## Common Pitfalls and Solutions
+
+1. **Consumer Lag**
+   - **Cause**: Consumers can't keep up with producers
+   - **Solution**: Scale consumers, optimize processing, increase partitions
+
+2. **Message Ordering**
+   - **Challenge**: Order is only guaranteed within a partition
+   - **Solution**: Use message keys consistently, consider single-partition topics for strict ordering
+
+3. **Data Retention**
+   - **Issue**: Disk space management
+   - **Solution**: Configure retention policies, implement data archiving
+
+4. **Rebalancing Issues**
+   - **Problem**: Frequent consumer rebalances
+   - **Solution**: Tune `session.timeout.ms` and `max.poll.interval.ms`
+
+### Producers and Consumers
+
+```python
+# Kafka producer and consumer implementation
+from kafka import KafkaProducer, KafkaConsumer, TopicPartition
+from kafka.admin import KafkaAdminClient, NewTopic
+import json
+from datetime import datetime
+from typing import Dict, List, Any, Optional
+
+class KafkaManager:
+    """Comprehensive Kafka management and operations"""
+    
+    def __init__(self, bootstrap_servers: List[str]):
+        self.bootstrap_servers = bootstrap_servers
+        
+        # Producer with optimized settings
+        self.producer = KafkaProducer(
+            bootstrap_servers=bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: str(k).encode('utf-8') if k else None,
+            acks='all',  # Wait for all replicas
+            retries=3,
+            batch_size=16384,
+            linger_ms=10,
+            compression_type='snappy'
+        )
+        
+        self.admin_client = KafkaAdminClient(
+            bootstrap_servers=bootstrap_servers,
+            client_id='kafka_manager'
+        )
+    
+    def create_topic(self, topic_name: str, num_partitions: int = 3, 
+                    replication_factor: int = 2) -> bool:
+        """Create a new Kafka topic"""
+        
+        topic = NewTopic(
+            name=topic_name,
+            num_partitions=num_partitions,
+            replication_factor=replication_factor,
+            topic_configs={
+                'cleanup.policy': 'delete',
+                'retention.ms': '604800000',  # 7 days
+                'compression.type': 'snappy'
+            }
+        )
+        
+        try:
+            result = self.admin_client.create_topics([topic])
+            for topic_name, future in result.items():
+                future.result()
+            print(f"Topic '{topic_name}' created successfully")
+            return True
+        except Exception as e:
+            print(f"Failed to create topic '{topic_name}': {e}")
+            return False
+    
+    def produce_messages(self, topic: str, messages: List[Dict[str, Any]], 
+                        key_field: Optional[str] = None):
+        """Produce messages to Kafka topic"""
+        
+        for message in messages:
+            key = message.get(key_field) if key_field else None
+            message['_timestamp'] = datetime.utcnow().isoformat()
+            
+            try:
+                future = self.producer.send(topic=topic, value=message, key=key)
+                record_metadata = future.get(timeout=10)
+                print(f"Message sent to {record_metadata.topic}:{record_metadata.partition}")
+            except Exception as e:
+                print(f"Failed to send message: {e}")
+        
+        self.producer.flush()
+    
+    def create_consumer(self, topics: List[str], consumer_group: str) -> KafkaConsumer:
+        """Create a Kafka consumer"""
+        
+        return KafkaConsumer(
+            *topics,
+            bootstrap_servers=self.bootstrap_servers,
+            group_id=consumer_group,
+            auto_offset_reset='latest',
+            enable_auto_commit=True,
+            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            key_deserializer=lambda k: k.decode('utf-8') if k else None
+        )
+    
+    def consume_messages(self, topics: List[str], consumer_group: str, 
+                        message_handler, max_messages: Optional[int] = None):
+        """Consume messages with custom handler"""
+        
+        consumer = self.create_consumer(topics, consumer_group)
+        
+        try:
+            message_count = 0
+            for message in consumer:
+                try:
+                    result = message_handler(message)
+                    if result:
+                        print(f"Processed message from {message.topic}:{message.partition}")
+                    
+                    message_count += 1
+                    if max_messages and message_count >= max_messages:
+                        break
+                except Exception as e:
+                    print(f"Error processing message: {e}")
+        except KeyboardInterrupt:
+            print("Consumer interrupted")
+        finally:
+            consumer.close()
+
+# Usage example
+kafka_manager = KafkaManager(['localhost:9092'])
+
+# Create topic
+kafka_manager.create_topic('user_events', num_partitions=6, replication_factor=2)
+
+# Sample events
+user_events = [
+    {
+        'user_id': 'user_123',
+        'event_type': 'page_view',
+        'page': '/products'
+    },
+    {
+        'user_id': 'user_123',
+        'event_type': 'purchase',
+        'product_id': 'prod_789',
+        'amount': 99.99
+    }
+]
+
+# Produce messages
+kafka_manager.produce_messages('user_events', user_events, key_field='user_id')
+
+# Message handler
+def process_user_event(message):
+    event = message.value
+    print(f"Processing {event['event_type']} for user {event.get('user_id')}")
+    
+    if event['event_type'] == 'purchase':
+        print(f"Purchase amount: ${event.get('amount', 0)}")
+    
+    return True
+
+# Consume messages
+kafka_manager.consume_messages(
+    topics=['user_events'],
+    consumer_group='event_processor',
+    message_handler=process_user_event,
+    max_messages=100
+)
+```
+
+## Stream Processing with Kafka
+
+### Real-time Analytics Pipeline
+
+```python
+# Stream processing for real-time analytics
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
+import threading
+import time
+
+class StreamAnalytics:
+    """Real-time stream analytics processor"""
+    
+    def __init__(self, kafka_manager: KafkaManager):
+        self.kafka_manager = kafka_manager
+        self.metrics = defaultdict(lambda: defaultdict(int))
+        self.windows = defaultdict(lambda: deque())
+        self.lock = threading.Lock()
+    
+    def process_user_events(self):
+        """Process user events for real-time analytics"""
+        
+        def analytics_processor(message):
+            event = message.value
+            timestamp = datetime.now()
+            
+            with self.lock:
+                # Update metrics
+                self.metrics['total_events']['count'] += 1
+                self.metrics['events_by_type'][event['event_type']] += 1
+                
+                if 'user_id' in event:
+                    self.metrics['unique_users'][event['user_id']] = timestamp
+                
+                # Sliding window analytics (5-minute windows)
+                window_key = f"events_{event['event_type']}"
+                self.windows[window_key].append((timestamp, event))
+                
+                # Remove old entries (older than 5 minutes)
+                cutoff_time = timestamp - timedelta(minutes=5)
+                while (self.windows[window_key] and 
+                       self.windows[window_key][0][0] < cutoff_time):
+                    self.windows[window_key].popleft()
+                
+                # Calculate window metrics
+                window_count = len(self.windows[window_key])
+                
+                if event['event_type'] == 'purchase':
+                    total_value = sum(e.get('amount', 0) for _, e in self.windows[window_key])
+                    avg_value = total_value / window_count if window_count > 0 else 0
+                    
+                    # Publish analytics results
+                    analytics_result = {
+                        'metric_type': 'purchase_analytics',
+                        'window_start': cutoff_time.isoformat(),
+                        'window_end': timestamp.isoformat(),
+                        'purchase_count': window_count,
+                        'total_value': total_value,
+                        'average_value': avg_value
+                    }
+                    
+                    self.kafka_manager.produce_messages(
+                        'analytics_results',
+                        [analytics_result]
+                    )
+            
+            return True
+        
+        # Start processing
+        self.kafka_manager.consume_messages(
+            topics=['user_events'],
+            consumer_group='analytics_processor',
+            message_handler=analytics_processor
+        )
+    
+    def fraud_detection(self):
+        """Real-time fraud detection"""
+        
+        user_activity = defaultdict(lambda: deque())
+        
+        def fraud_processor(message):
+            event = message.value
+            
+            if event['event_type'] == 'purchase':
+                user_id = event['user_id']
+                amount = event.get('amount', 0)
+                timestamp = datetime.now()
+                
+                # Track user activity
+                user_activity[user_id].append((timestamp, amount))
+                
+                # Remove old activity (last hour)
+                cutoff_time = timestamp - timedelta(hours=1)
+                while (user_activity[user_id] and 
+                       user_activity[user_id][0][0] < cutoff_time):
+                    user_activity[user_id].popleft()
+                
+                # Check for suspicious patterns
+                recent_purchases = list(user_activity[user_id])
+                
+                if len(recent_purchases) > 10:  # More than 10 purchases in an hour
+                    alert = {
+                        'alert_type': 'high_frequency_purchases',
+                        'user_id': user_id,
+                        'purchase_count': len(recent_purchases),
+                        'time_window': '1_hour',
+                        'risk_score': 0.8
+                    }
+                    
+                    self.kafka_manager.produce_messages('fraud_alerts', [alert])
+                
+                total_amount = sum(amt for _, amt in recent_purchases)
+                if total_amount > 10000:  # More than $10,000 in an hour
+                    alert = {
+                        'alert_type': 'high_value_activity',
+                        'user_id': user_id,
+                        'total_amount': total_amount,
+                        'time_window': '1_hour',
+                        'risk_score': 0.9
+                    }
+                    
+                    self.kafka_manager.produce_messages('fraud_alerts', [alert])
+            
+            return True
+        
+        # Start fraud detection
+        self.kafka_manager.consume_messages(
+            topics=['user_events'],
+            consumer_group='fraud_detector',
+            message_handler=fraud_processor
+        )
+    
+    def get_current_metrics(self) -> Dict[str, Any]:
+        """Get current analytics metrics"""
+        
+        with self.lock:
+            return {
+                'total_events': dict(self.metrics['total_events']),
+                'events_by_type': dict(self.metrics['events_by_type']),
+                'unique_users_count': len(self.metrics['unique_users']),
+                'window_sizes': {k: len(v) for k, v in self.windows.items()}
+            }
+
+# Usage
+stream_analytics = StreamAnalytics(kafka_manager)
+
+# Start analytics processing in separate threads
+analytics_thread = threading.Thread(target=stream_analytics.process_user_events)
+fraud_thread = threading.Thread(target=stream_analytics.fraud_detection)
+
+analytics_thread.start()
+fraud_thread.start()
+
+# Monitor metrics
+time.sleep(10)
+current_metrics = stream_analytics.get_current_metrics()
+print("Current metrics:", current_metrics)
+```
+
+## Kafka Connect Integration
+
+```python
+# Kafka Connect management
+import requests
+import json
+
+class KafkaConnectManager:
+    """Manage Kafka Connect connectors"""
+    
+    def __init__(self, connect_url: str = 'http://localhost:8083'):
+        self.connect_url = connect_url
+    
+    def create_database_source_connector(self):
+        """Create database source connector"""
+        
+        config = {
+            "name": "postgres-source",
+            "config": {
+                "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+                "connection.url": "jdbc:postgresql://localhost:5432/mydb",
+                "connection.user": "postgres",
+                "connection.password": "password",
+                "table.whitelist": "orders,customers",
+                "mode": "incrementing",
+                "incrementing.column.name": "id",
+                "topic.prefix": "postgres-"
+            }
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.connect_url}/connectors",
+                headers={'Content-Type': 'application/json'},
+                data=json.dumps(config)
+            )
+            
+            if response.status_code == 201:
+                print("Database source connector created")
+                return True
+            else:
+                print(f"Failed to create connector: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Error: {e}")
+            return False
+    
+    def create_s3_sink_connector(self):
+        """Create S3 sink connector"""
+        
+        config = {
+            "name": "s3-sink",
+            "config": {
+                "connector.class": "io.confluent.connect.s3.S3SinkConnector",
+                "topics": "user_events,analytics_results",
+                "s3.bucket.name": "kafka-data-lake",
+                "s3.region": "us-west-2",
+                "flush.size": 1000,
+                "rotate.interval.ms": 300000,
+                "format.class": "io.confluent.connect.s3.format.parquet.ParquetFormat"
+            }
+        }
+        
+        try:
+            response = requests.post(
+                f"{self.connect_url}/connectors",
+                headers={'Content-Type': 'application/json'},
+                data=json.dumps(config)
+            )
+            
+            if response.status_code == 201:
+                print("S3 sink connector created")
+                return True
+            else:
+                print(f"Failed to create connector: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Error: {e}")
+            return False
+
+# Create connectors
+connect_manager = KafkaConnectManager()
+connect_manager.create_database_source_connector()
+connect_manager.create_s3_sink_connector()
+```
+
+## Performance Optimization
+
+### Producer Optimization
+
+```python
+# Optimized producer configurations
+class OptimizedKafkaProducer:
+    """Kafka producer with performance optimizations"""
+    
+    def __init__(self, bootstrap_servers: List[str], profile: str = 'balanced'):
+        base_config = {
+            'bootstrap_servers': bootstrap_servers,
+            'value_serializer': lambda v: json.dumps(v).encode('utf-8')
+        }
+        
+        if profile == 'throughput':
+            config = {
+                **base_config,
+                'acks': '1',
+                'batch_size': 65536,
+                'linger_ms': 100,
+                'compression_type': 'lz4'
+            }
+        elif profile == 'durability':
+            config = {
+                **base_config,
+                'acks': 'all',
+                'retries': 10,
+                'enable_idempotence': True
+            }
+        else:  # balanced
+            config = {
+                **base_config,
+                'acks': 'all',
+                'retries': 3,
+                'batch_size': 32768,
+                'linger_ms': 10,
+                'compression_type': 'snappy'
+            }
+        
+        self.producer = KafkaProducer(**config)
+```
+
+## Best Practices
+
+### Production Configuration
+
+```python
+# Production-ready configurations
+PRODUCTION_CONFIG = {
+    'producer': {
+        'acks': 'all',
+        'retries': 10,
+        'batch_size': 32768,
+        'linger_ms': 10,
+        'compression_type': 'snappy',
+        'enable_idempotence': True
+    },
+    'consumer': {
+        'enable_auto_commit': False,
+        'auto_offset_reset': 'earliest',
+        'max_poll_records': 500
+    },
+    'topic_defaults': {
+        'num_partitions': 6,
+        'replication_factor': 3,
+        'min_insync_replicas': 2
+    }
+}
+```
+
+## Summary
+
+Apache Kafka provides:
+
+- **High throughput** - Handle millions of messages per second
+- **Fault tolerance** - Replication ensures data durability
+- **Scalability** - Horizontal scaling through partitioning
+- **Stream processing** - Real-time data processing capabilities
+- **Integration** - Connect to various data sources and sinks
+
+Key considerations include proper partitioning, replication configuration, and performance tuning for production deployments.
+
+---
+
+**Next**: Learn about [Apache Spark Streaming](/chapters/stream-processing/spark-streaming) for large-scale stream processing.

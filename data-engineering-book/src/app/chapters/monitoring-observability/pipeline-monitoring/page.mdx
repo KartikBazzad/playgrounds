@@ -1,0 +1,816 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Pipeline Monitoring
+
+Pipeline monitoring is essential for maintaining reliable, performant data pipelines. It involves tracking pipeline execution, resource utilization, data quality, and business metrics to ensure data systems operate effectively and meet SLA requirements.
+
+## Pipeline Monitoring Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Pipelines"
+        P1[Ingestion Pipeline]
+        P2[Processing Pipeline]
+        P3[ML Pipeline]
+        P4[ETL Pipeline]
+    end
+    
+    subgraph "Monitoring Layer"
+        M1[Metrics Collection]
+        M2[Log Aggregation]
+        M3[Trace Collection]
+        M4[Health Checks]
+    end
+    
+    subgraph "Storage & Processing"
+        S1[Time Series DB]
+        S2[Log Storage]
+        S3[Trace Storage]
+        S4[Metrics Processor]
+    end
+    
+    subgraph "Visualization & Alerting"
+        V1[Dashboards]
+        V2[Alert Manager]
+        V3[Notification System]
+        V4[Reports]
+    end
+    
+    P1 --> M1
+    P2 --> M2
+    P3 --> M3
+    P4 --> M4
+    
+    M1 --> S1
+    M2 --> S2
+    M3 --> S3
+    M4 --> S4
+    
+    S1 --> V1
+    S2 --> V2
+    S3 --> V3
+    S4 --> V4
+    
+    style P1 fill:#e3f2fd
+    style M1 fill:#e8f5e8
+    style S1 fill:#fff3e0
+    style V1 fill:#f3e5f5
+`} />
+
+## Comprehensive Pipeline Monitoring System
+
+### Core Monitoring Framework
+
+```python
+# Comprehensive Pipeline Monitoring System
+import time
+import json
+import logging
+import threading
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Callable
+from dataclasses import dataclass, field
+from enum import Enum
+import uuid
+from collections import defaultdict, deque
+import psutil
+import pandas as pd
+from contextlib import contextmanager
+
+class PipelineStatus(Enum):
+    """Pipeline execution status"""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    RETRYING = "retrying"
+
+class MetricType(Enum):
+    """Types of metrics"""
+    COUNTER = "counter"
+    GAUGE = "gauge"
+    HISTOGRAM = "histogram"
+    TIMER = "timer"
+
+@dataclass
+class PipelineMetric:
+    """Individual pipeline metric"""
+    name: str
+    value: float
+    metric_type: MetricType
+    timestamp: datetime = field(default_factory=datetime.now)
+    labels: Dict[str, str] = field(default_factory=dict)
+    pipeline_id: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'name': self.name,
+            'value': self.value,
+            'type': self.metric_type.value,
+            'timestamp': self.timestamp.isoformat(),
+            'labels': self.labels,
+            'pipeline_id': self.pipeline_id
+        }
+
+@dataclass
+class PipelineExecution:
+    """Pipeline execution record"""
+    execution_id: str
+    pipeline_name: str
+    status: PipelineStatus
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    input_records: int = 0
+    output_records: int = 0
+    error_message: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    metrics: List[PipelineMetric] = field(default_factory=list)
+    
+    def complete(self, status: PipelineStatus, error_message: str = None):
+        """Mark execution as complete"""
+        self.end_time = datetime.now()
+        self.duration_seconds = (self.end_time - self.start_time).total_seconds()
+        self.status = status
+        if error_message:
+            self.error_message = error_message
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'execution_id': self.execution_id,
+            'pipeline_name': self.pipeline_name,
+            'status': self.status.value,
+            'start_time': self.start_time.isoformat(),
+            'end_time': self.end_time.isoformat() if self.end_time else None,
+            'duration_seconds': self.duration_seconds,
+            'input_records': self.input_records,
+            'output_records': self.output_records,
+            'error_message': self.error_message,
+            'metadata': self.metadata,
+            'metrics': [m.to_dict() for m in self.metrics]
+        }
+
+class MetricsCollector:
+    """Collects and stores pipeline metrics"""
+    
+    def __init__(self, max_metrics: int = 10000):
+        self.metrics: deque = deque(maxlen=max_metrics)
+        self.counters: Dict[str, float] = defaultdict(float)
+        self.gauges: Dict[str, float] = {}
+        self.histograms: Dict[str, List[float]] = defaultdict(list)
+        self.timers: Dict[str, List[float]] = defaultdict(list)
+        self.lock = threading.Lock()
+        self.logger = logging.getLogger(__name__)
+    
+    def record_metric(self, metric: PipelineMetric):
+        """Record a pipeline metric"""
+        with self.lock:
+            self.metrics.append(metric)
+            
+            # Update metric stores based on type
+            if metric.metric_type == MetricType.COUNTER:
+                self.counters[metric.name] += metric.value
+            elif metric.metric_type == MetricType.GAUGE:
+                self.gauges[metric.name] = metric.value
+            elif metric.metric_type == MetricType.HISTOGRAM:
+                self.histograms[metric.name].append(metric.value)
+            elif metric.metric_type == MetricType.TIMER:
+                self.timers[metric.name].append(metric.value)
+    
+    def increment_counter(self, name: str, value: float = 1.0, 
+                         labels: Dict[str, str] = None, pipeline_id: str = None):
+        """Increment a counter metric"""
+        metric = PipelineMetric(
+            name=name,
+            value=value,
+            metric_type=MetricType.COUNTER,
+            labels=labels or {},
+            pipeline_id=pipeline_id
+        )
+        self.record_metric(metric)
+    
+    def set_gauge(self, name: str, value: float, 
+                  labels: Dict[str, str] = None, pipeline_id: str = None):
+        """Set a gauge metric"""
+        metric = PipelineMetric(
+            name=name,
+            value=value,
+            metric_type=MetricType.GAUGE,
+            labels=labels or {},
+            pipeline_id=pipeline_id
+        )
+        self.record_metric(metric)
+    
+    def record_histogram(self, name: str, value: float,
+                        labels: Dict[str, str] = None, pipeline_id: str = None):
+        """Record a histogram value"""
+        metric = PipelineMetric(
+            name=name,
+            value=value,
+            metric_type=MetricType.HISTOGRAM,
+            labels=labels or {},
+            pipeline_id=pipeline_id
+        )
+        self.record_metric(metric)
+    
+    def record_timer(self, name: str, duration_seconds: float,
+                    labels: Dict[str, str] = None, pipeline_id: str = None):
+        """Record a timer value"""
+        metric = PipelineMetric(
+            name=name,
+            value=duration_seconds,
+            metric_type=MetricType.TIMER,
+            labels=labels or {},
+            pipeline_id=pipeline_id
+        )
+        self.record_metric(metric)
+    
+    def get_metrics_summary(self, pipeline_id: str = None) -> Dict[str, Any]:
+        """Get summary of metrics"""
+        with self.lock:
+            filtered_metrics = [
+                m for m in self.metrics 
+                if pipeline_id is None or m.pipeline_id == pipeline_id
+            ]
+            
+            return {
+                'total_metrics': len(filtered_metrics),
+                'counters': dict(self.counters),
+                'gauges': dict(self.gauges),
+                'histogram_counts': {k: len(v) for k, v in self.histograms.items()},
+                'timer_counts': {k: len(v) for k, v in self.timers.items()},
+                'latest_timestamp': max([m.timestamp for m in filtered_metrics], 
+                                      default=datetime.now()).isoformat()
+            }
+
+class PipelineMonitor:
+    """Main pipeline monitoring system"""
+    
+    def __init__(self):
+        self.executions: Dict[str, PipelineExecution] = {}
+        self.metrics_collector = MetricsCollector()
+        self.active_executions: Dict[str, PipelineExecution] = {}
+        self.pipeline_configs: Dict[str, Dict[str, Any]] = {}
+        self.health_checks: Dict[str, Callable] = {}
+        self.logger = logging.getLogger(__name__)
+        
+        # Start background monitoring
+        self._start_system_monitoring()
+    
+    def register_pipeline(self, pipeline_name: str, config: Dict[str, Any]):
+        """Register a pipeline for monitoring"""
+        self.pipeline_configs[pipeline_name] = {
+            'name': pipeline_name,
+            'registered_at': datetime.now(),
+            'config': config,
+            'execution_count': 0,
+            'last_execution': None
+        }
+        self.logger.info(f"Registered pipeline: {pipeline_name}")
+    
+    def start_execution(self, pipeline_name: str, metadata: Dict[str, Any] = None) -> str:
+        """Start monitoring a pipeline execution"""
+        execution_id = str(uuid.uuid4())
+        
+        execution = PipelineExecution(
+            execution_id=execution_id,
+            pipeline_name=pipeline_name,
+            status=PipelineStatus.RUNNING,
+            start_time=datetime.now(),
+            metadata=metadata or {}
+        )
+        
+        self.executions[execution_id] = execution
+        self.active_executions[execution_id] = execution
+        
+        # Update pipeline config
+        if pipeline_name in self.pipeline_configs:
+            self.pipeline_configs[pipeline_name]['execution_count'] += 1
+            self.pipeline_configs[pipeline_name]['last_execution'] = execution_id
+        
+        # Record metrics
+        self.metrics_collector.increment_counter(
+            'pipeline_executions_started',
+            labels={'pipeline': pipeline_name},
+            pipeline_id=execution_id
+        )
+        
+        self.logger.info(f"Started execution {execution_id} for pipeline {pipeline_name}")
+        return execution_id
+    
+    def complete_execution(self, execution_id: str, status: PipelineStatus,
+                          input_records: int = 0, output_records: int = 0,
+                          error_message: str = None):
+        """Complete a pipeline execution"""
+        if execution_id not in self.executions:
+            self.logger.warning(f"Execution {execution_id} not found")
+            return
+        
+        execution = self.executions[execution_id]
+        execution.complete(status, error_message)
+        execution.input_records = input_records
+        execution.output_records = output_records
+        
+        # Remove from active executions
+        if execution_id in self.active_executions:
+            del self.active_executions[execution_id]
+        
+        # Record completion metrics
+        self.metrics_collector.increment_counter(
+            'pipeline_executions_completed',
+            labels={
+                'pipeline': execution.pipeline_name,
+                'status': status.value
+            },
+            pipeline_id=execution_id
+        )
+        
+        if execution.duration_seconds:
+            self.metrics_collector.record_timer(
+                'pipeline_execution_duration',
+                execution.duration_seconds,
+                labels={'pipeline': execution.pipeline_name},
+                pipeline_id=execution_id
+            )
+        
+        # Record throughput metrics
+        if execution.duration_seconds and execution.duration_seconds > 0:
+            throughput = output_records / execution.duration_seconds
+            self.metrics_collector.record_histogram(
+                'pipeline_throughput_records_per_second',
+                throughput,
+                labels={'pipeline': execution.pipeline_name},
+                pipeline_id=execution_id
+            )
+        
+        self.logger.info(f"Completed execution {execution_id} with status {status.value}")
+    
+    @contextmanager
+    def monitor_execution(self, pipeline_name: str, metadata: Dict[str, Any] = None):
+        """Context manager for monitoring pipeline execution"""
+        execution_id = self.start_execution(pipeline_name, metadata)
+        
+        try:
+            yield execution_id
+            self.complete_execution(execution_id, PipelineStatus.SUCCESS)
+        except Exception as e:
+            self.complete_execution(
+                execution_id, 
+                PipelineStatus.FAILED,
+                error_message=str(e)
+            )
+            raise
+    
+    def add_health_check(self, name: str, check_function: Callable[[], bool]):
+        """Add a health check function"""
+        self.health_checks[name] = check_function
+        self.logger.info(f"Added health check: {name}")
+    
+    def run_health_checks(self) -> Dict[str, Any]:
+        """Run all health checks"""
+        results = {}
+        overall_healthy = True
+        
+        for name, check_func in self.health_checks.items():
+            try:
+                is_healthy = check_func()
+                results[name] = {
+                    'healthy': is_healthy,
+                    'checked_at': datetime.now().isoformat()
+                }
+                if not is_healthy:
+                    overall_healthy = False
+            except Exception as e:
+                results[name] = {
+                    'healthy': False,
+                    'error': str(e),
+                    'checked_at': datetime.now().isoformat()
+                }
+                overall_healthy = False
+        
+        return {
+            'overall_healthy': overall_healthy,
+            'checks': results,
+            'checked_at': datetime.now().isoformat()
+        }
+    
+    def get_pipeline_statistics(self, pipeline_name: str = None) -> Dict[str, Any]:
+        """Get pipeline execution statistics"""
+        executions = [
+            ex for ex in self.executions.values()
+            if pipeline_name is None or ex.pipeline_name == pipeline_name
+        ]
+        
+        if not executions:
+            return {'message': 'No executions found'}
+        
+        # Calculate statistics
+        total_executions = len(executions)
+        successful = len([ex for ex in executions if ex.status == PipelineStatus.SUCCESS])
+        failed = len([ex for ex in executions if ex.status == PipelineStatus.FAILED])
+        
+        durations = [ex.duration_seconds for ex in executions if ex.duration_seconds]
+        avg_duration = sum(durations) / len(durations) if durations else 0
+        
+        return {
+            'pipeline_name': pipeline_name or 'all_pipelines',
+            'total_executions': total_executions,
+            'successful_executions': successful,
+            'failed_executions': failed,
+            'success_rate': successful / total_executions if total_executions > 0 else 0,
+            'average_duration_seconds': avg_duration,
+            'active_executions': len([
+                ex for ex in executions 
+                if ex.status == PipelineStatus.RUNNING
+            ]),
+            'last_execution': max(executions, key=lambda x: x.start_time).to_dict() if executions else None
+        }
+    
+    def get_system_metrics(self) -> Dict[str, Any]:
+        """Get system resource metrics"""
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        # Record system metrics
+        self.metrics_collector.set_gauge('system_cpu_percent', cpu_percent)
+        self.metrics_collector.set_gauge('system_memory_percent', memory.percent)
+        self.metrics_collector.set_gauge('system_disk_percent', disk.percent)
+        
+        return {
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory.percent,
+            'memory_available_gb': memory.available / (1024**3),
+            'disk_percent': disk.percent,
+            'disk_free_gb': disk.free / (1024**3),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def _start_system_monitoring(self):
+        """Start background system monitoring"""
+        def monitor_system():
+            while True:
+                try:
+                    self.get_system_metrics()
+                    time.sleep(60)  # Monitor every minute
+                except Exception as e:
+                    self.logger.error(f"System monitoring error: {e}")
+                    time.sleep(60)
+        
+        thread = threading.Thread(target=monitor_system, daemon=True)
+        thread.start()
+        self.logger.info("Started background system monitoring")
+    
+    def export_metrics(self, format: str = 'json', time_range_hours: int = 24) -> str:
+        """Export metrics in various formats"""
+        cutoff_time = datetime.now() - timedelta(hours=time_range_hours)
+        
+        recent_metrics = [
+            m for m in self.metrics_collector.metrics
+            if m.timestamp >= cutoff_time
+        ]
+        
+        if format == 'json':
+            return json.dumps([m.to_dict() for m in recent_metrics], indent=2)
+        elif format == 'prometheus':
+            # Simple Prometheus format export
+            lines = []
+            for metric in recent_metrics:
+                labels = ','.join([f'{k}="{v}"' for k, v in metric.labels.items()])
+                label_str = f'{{{labels}}}' if labels else ''
+                lines.append(f'{metric.name}{label_str} {metric.value}')
+            return '\n'.join(lines)
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+
+# Example usage and testing
+def example_pipeline_monitoring():
+    """Example of comprehensive pipeline monitoring"""
+    
+    # Initialize monitor
+    monitor = PipelineMonitor()
+    
+    # Register pipelines
+    monitor.register_pipeline('customer_etl', {
+        'source': 'database',
+        'destination': 'warehouse',
+        'schedule': 'daily'
+    })
+    
+    monitor.register_pipeline('sales_aggregation', {
+        'source': 'warehouse',
+        'destination': 'analytics',
+        'schedule': 'hourly'
+    })
+    
+    # Add health checks
+    def database_health_check():
+        # Simulate database connectivity check
+        return True
+    
+    def storage_health_check():
+        # Simulate storage availability check
+        return psutil.disk_usage('/').percent < 90
+    
+    monitor.add_health_check('database_connectivity', database_health_check)
+    monitor.add_health_check('storage_availability', storage_health_check)
+    
+    # Simulate pipeline executions
+    print("=== SIMULATING PIPELINE EXECUTIONS ===")
+    
+    # Successful execution
+    with monitor.monitor_execution('customer_etl', {'batch_date': '2023-12-01'}) as execution_id:
+        time.sleep(0.1)  # Simulate processing time
+        monitor.metrics_collector.increment_counter(
+            'records_processed',
+            value=1000,
+            labels={'pipeline': 'customer_etl'},
+            pipeline_id=execution_id
+        )
+    
+    # Failed execution
+    try:
+        with monitor.monitor_execution('sales_aggregation', {'batch_date': '2023-12-01'}):
+            time.sleep(0.05)
+            raise Exception("Simulated processing error")
+    except Exception:
+        pass  # Exception handled by context manager
+    
+    # Another successful execution
+    with monitor.monitor_execution('customer_etl', {'batch_date': '2023-12-02'}) as execution_id:
+        time.sleep(0.08)
+        monitor.metrics_collector.increment_counter(
+            'records_processed',
+            value=1200,
+            labels={'pipeline': 'customer_etl'},
+            pipeline_id=execution_id
+        )
+    
+    # Get statistics
+    print("\n=== PIPELINE STATISTICS ===")
+    stats = monitor.get_pipeline_statistics('customer_etl')
+    print(f"Customer ETL Success Rate: {stats['success_rate']:.2%}")
+    print(f"Average Duration: {stats['average_duration_seconds']:.2f} seconds")
+    
+    all_stats = monitor.get_pipeline_statistics()
+    print(f"Overall Success Rate: {all_stats['success_rate']:.2%}")
+    
+    # Run health checks
+    print("\n=== HEALTH CHECKS ===")
+    health_results = monitor.run_health_checks()
+    print(f"Overall System Health: {'HEALTHY' if health_results['overall_healthy'] else 'UNHEALTHY'}")
+    
+    for check_name, result in health_results['checks'].items():
+        status = 'PASS' if result['healthy'] else 'FAIL'
+        print(f"  {check_name}: {status}")
+    
+    # Get system metrics
+    print("\n=== SYSTEM METRICS ===")
+    system_metrics = monitor.get_system_metrics()
+    print(f"CPU Usage: {system_metrics['cpu_percent']:.1f}%")
+    print(f"Memory Usage: {system_metrics['memory_percent']:.1f}%")
+    print(f"Disk Usage: {system_metrics['disk_percent']:.1f}%")
+    
+    # Get metrics summary
+    print("\n=== METRICS SUMMARY ===")
+    metrics_summary = monitor.metrics_collector.get_metrics_summary()
+    print(f"Total Metrics Collected: {metrics_summary['total_metrics']}")
+    print(f"Active Counters: {len(metrics_summary['counters'])}")
+    print(f"Active Gauges: {len(metrics_summary['gauges'])}")
+    
+    return monitor
+
+# monitor = example_pipeline_monitoring()
+```
+
+## Advanced Monitoring Patterns
+
+### Custom Monitoring Decorators
+
+```python
+# Advanced monitoring decorators and patterns
+import functools
+import traceback
+from typing import Any, Callable
+
+def monitor_pipeline_step(step_name: str, monitor: PipelineMonitor):
+    """Decorator to monitor individual pipeline steps"""
+    
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            
+            # Record step start
+            monitor.metrics_collector.increment_counter(
+                'pipeline_step_started',
+                labels={'step': step_name}
+            )
+            
+            try:
+                result = func(*args, **kwargs)
+                
+                # Record success
+                duration = time.time() - start_time
+                monitor.metrics_collector.record_timer(
+                    'pipeline_step_duration',
+                    duration,
+                    labels={'step': step_name, 'status': 'success'}
+                )
+                
+                monitor.metrics_collector.increment_counter(
+                    'pipeline_step_completed',
+                    labels={'step': step_name, 'status': 'success'}
+                )
+                
+                return result
+                
+            except Exception as e:
+                # Record failure
+                duration = time.time() - start_time
+                monitor.metrics_collector.record_timer(
+                    'pipeline_step_duration',
+                    duration,
+                    labels={'step': step_name, 'status': 'failed'}
+                )
+                
+                monitor.metrics_collector.increment_counter(
+                    'pipeline_step_completed',
+                    labels={'step': step_name, 'status': 'failed'}
+                )
+                
+                # Log error details
+                monitor.logger.error(f"Step {step_name} failed: {str(e)}")
+                monitor.logger.error(traceback.format_exc())
+                
+                raise
+        
+        return wrapper
+    return decorator
+
+class DataPipelineWithMonitoring:
+    """Example data pipeline with comprehensive monitoring"""
+    
+    def __init__(self, monitor: PipelineMonitor):
+        self.monitor = monitor
+        self.logger = logging.getLogger(__name__)
+    
+    @monitor_pipeline_step('data_extraction', monitor)
+    def extract_data(self, source_config: Dict[str, Any]) -> pd.DataFrame:
+        """Extract data with monitoring"""
+        # Simulate data extraction
+        data = pd.DataFrame({
+            'id': range(1000),
+            'value': range(1000),
+            'timestamp': [datetime.now()] * 1000
+        })
+        
+        # Record data volume metrics
+        self.monitor.metrics_collector.record_histogram(
+            'extracted_records',
+            len(data),
+            labels={'source': source_config.get('source', 'unknown')}
+        )
+        
+        return data
+    
+    @monitor_pipeline_step('data_transformation', monitor)
+    def transform_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Transform data with monitoring"""
+        # Simulate transformation
+        transformed = data.copy()
+        transformed['processed_value'] = transformed['value'] * 2
+        
+        # Record transformation metrics
+        self.monitor.metrics_collector.record_histogram(
+            'transformation_ratio',
+            len(transformed) / len(data),
+            labels={'transformation': 'value_doubling'}
+        )
+        
+        return transformed
+    
+    @monitor_pipeline_step('data_loading', monitor)
+    def load_data(self, data: pd.DataFrame, destination_config: Dict[str, Any]) -> bool:
+        """Load data with monitoring"""
+        # Simulate data loading
+        time.sleep(0.1)  # Simulate I/O time
+        
+        # Record loading metrics
+        self.monitor.metrics_collector.record_histogram(
+            'loaded_records',
+            len(data),
+            labels={'destination': destination_config.get('destination', 'unknown')}
+        )
+        
+        return True
+    
+    def run_pipeline(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Run complete pipeline with monitoring"""
+        
+        with self.monitor.monitor_execution('monitored_etl_pipeline', config) as execution_id:
+            
+            # Extract
+            data = self.extract_data(config.get('source', {}))
+            
+            # Transform
+            transformed_data = self.transform_data(data)
+            
+            # Load
+            success = self.load_data(transformed_data, config.get('destination', {}))
+            
+            # Update execution metrics
+            execution = self.monitor.executions[execution_id]
+            execution.input_records = len(data)
+            execution.output_records = len(transformed_data)
+            
+            return {
+                'success': success,
+                'input_records': len(data),
+                'output_records': len(transformed_data),
+                'execution_id': execution_id
+            }
+
+# Example usage of monitored pipeline
+def example_monitored_pipeline():
+    """Example of pipeline with comprehensive monitoring"""
+    
+    monitor = PipelineMonitor()
+    pipeline = DataPipelineWithMonitoring(monitor)
+    
+    # Register the pipeline
+    monitor.register_pipeline('monitored_etl_pipeline', {
+        'type': 'etl',
+        'frequency': 'daily'
+    })
+    
+    # Run pipeline multiple times
+    for i in range(3):
+        config = {
+            'source': {'source': 'database_a', 'table': f'table_{i}'},
+            'destination': {'destination': 'warehouse', 'table': 'processed_data'},
+            'batch_id': f'batch_{i}'
+        }
+        
+        result = pipeline.run_pipeline(config)
+        print(f"Pipeline run {i+1}: {result}")
+    
+    # Get comprehensive statistics
+    stats = monitor.get_pipeline_statistics('monitored_etl_pipeline')
+    print(f"\nPipeline Statistics:")
+    print(f"  Success Rate: {stats['success_rate']:.2%}")
+    print(f"  Average Duration: {stats['average_duration_seconds']:.2f}s")
+    print(f"  Total Executions: {stats['total_executions']}")
+    
+    return monitor, pipeline
+
+# monitor, pipeline = example_monitored_pipeline()
+```
+
+## Best Practices
+
+### Pipeline Monitoring Guidelines
+
+1. **Comprehensive Metrics Collection**
+   - Track execution status and duration
+   - Monitor data volume and quality
+   - Capture resource utilization
+   - Record business metrics
+
+2. **Proactive Health Monitoring**
+   - Implement health checks for dependencies
+   - Monitor system resources
+   - Track SLA compliance
+   - Set up automated alerts
+
+3. **Performance Optimization**
+   - Monitor pipeline throughput
+   - Track resource bottlenecks
+   - Analyze execution patterns
+   - Optimize based on metrics
+
+4. **Operational Excellence**
+   - Maintain execution history
+   - Enable debugging capabilities
+   - Support incident response
+   - Provide actionable dashboards
+
+## Summary
+
+Pipeline Monitoring provides:
+
+- **Execution Tracking** - Complete visibility into pipeline runs
+- **Metrics Collection** - Comprehensive performance and business metrics
+- **Health Monitoring** - Proactive system health checks
+- **Performance Analysis** - Data-driven optimization insights
+
+Key components:
+- Pipeline execution monitoring
+- Metrics collection and storage
+- Health checks and system monitoring
+- Statistical analysis and reporting
+
+---
+
+**Next**: Learn about [Data Observability](/chapters/monitoring-observability/data-observability) for comprehensive data system visibility.

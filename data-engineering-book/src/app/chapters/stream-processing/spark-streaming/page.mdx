@@ -1,0 +1,1000 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Apache Spark Streaming: Real-time Data Processing at Scale
+
+Apache Spark Streaming is a powerful, scalable, and fault-tolerant streaming processing system that enables high-throughput, fault-tolerant stream processing of live data streams. It extends the core Spark API to process real-time data from various sources like Kafka, Flume, Kinesis, or TCP sockets, and push the processed data to filesystems, databases, or live dashboards.
+
+## Why Choose Spark Streaming?
+
+- **Unified Engine**: Single engine for batch and streaming workloads
+- **Fault Tolerance**: Exactly-once processing semantics
+- **High Throughput**: Can process millions of events per second
+- **Integration**: Seamless integration with the Spark ecosystem (SQL, MLlib, GraphX)
+- **Scalability**: Scale from a few cores to thousands of nodes
+- **Micro-batch Architecture**: Balances latency and throughput
+
+## Spark Streaming Architecture
+
+Spark Streaming follows a micro-batch architecture where live input data streams are divided into small batches, which are then processed by the Spark engine to generate the final stream of results in batches.
+
+### Core Components
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Spark Streaming Application"
+        SS[StreamingContext]
+        subgraph "Executors"
+            E1[Executor 1]
+            E2[Executor 2]
+            E3[Executor 3]
+        end
+        
+        subgraph "Driver Program"
+            D1[StreamingContext]
+            D2[DStream Operations]
+            D3[Checkpointing]
+        end
+    end
+    
+    subgraph "Data Sources"
+        KF[Kafka]
+        KS[Kinesis]
+        FS[File System]
+        TC[TCP Sockets]
+    end
+    
+    subgraph "Sinks"
+        DB[Databases]
+        ES[Elasticsearch]
+        DS[Data Lakes]
+    end
+    
+    KF -->|Consume| E1
+    KS -->|Consume| E2
+    TC -->|Consume| E3
+    
+    E1 -->|Processed Data| DB
+    E2 -->|Processed Data| ES
+    E3 -->|Processed Data| DS
+    
+    D1 -->|Control Flow| E1
+    D1 -->|Control Flow| E2
+    D1 -->|Control Flow| E3
+    
+    style D1 fill:#e3f2fd
+    style E1 fill:#e8f5e9
+    style E2 fill:#e8f5e9
+    style E3 fill:#e8f5e9
+`} />
+
+### Key Components:
+
+1. **DStream (Discretized Stream)**
+   - Fundamental data structure in Spark Streaming
+   - Represents a continuous stream of data
+   - Internally divided into RDDs (Resilient Distributed Datasets)
+
+2. **StreamingContext**
+   - Main entry point for Spark Streaming functionality
+   - Creates DStreams from input sources
+   - Defines batch intervals
+
+3. **Input DStreams**
+   - Connect to data sources
+   - Examples: Kafka, Kinesis, Flume, TCP sockets
+
+4. **Output Operations**
+   - Write processed data to external systems
+   - Examples: saveAsTextFiles, saveAsHadoopFiles, foreachRDD
+
+### Micro-batch Processing
+
+<MermaidDiagram chart={`
+graph LR
+    subgraph "Time"
+        B1[Batch 1] --> B2[Batch 2] --> B3[Batch 3]
+    end
+    
+    subgraph "Processing"
+        P1[Process Batch 1] --> R1[Result 1]
+        P2[Process Batch 2] --> R2[Result 2]
+        P3[Process Batch 3] --> R3[Result 3]
+    end
+    
+    B1 --> P1
+    B2 --> P2
+    B3 --> P3
+    
+    style B1 fill:#fff3e0
+    style B2 fill:#fff3e0
+    style B3 fill:#fff3e0
+    style P1 fill:#e8f5e9
+    style P2 fill:#e8f5e9
+    style P3 fill:#e8f5e9
+`} />
+
+### Fault Tolerance
+
+1. **Checkpointing**
+   - Metadata checkpointing (configuration, DStream operations)
+   - Data checkpointing (stateful transformations)
+   - Enables recovery from driver failures
+
+2. **Lineage**
+   - RDDs maintain lineage information
+   - Enables recomputation of lost data
+
+3. **Receiver Reliability**
+   - Reliable receivers: Acknowledge after data is replicated
+   - Unreliable receivers: No acknowledgment mechanism
+
+### Performance Considerations
+
+1. **Batch Interval**
+   - Typically 500ms to several seconds
+   - Lower for low-latency requirements
+   - Higher for better throughput
+
+2. **Parallelism**
+   - Number of partitions should be a multiple of cluster cores
+   - repartition() for better load balancing
+
+3. **Garbage Collection**
+   - Tune JVM garbage collection
+   - Use G1GC for large heaps
+
+### Structured Streaming
+
+Structured Streaming is a scalable and fault-tolerant stream processing engine built on the Spark SQL engine. It provides a higher-level API compared to DStreams.
+
+#### Key Features:
+
+- **Unified API**: Same API for batch and streaming
+- **Event-time Processing**: Handle late-arriving data
+- **Exactly-once Processing**: End-to-end exactly-once guarantees
+- **Fault Tolerance**: Automatic recovery from failures
+
+#### Programming Model:
+
+The basic pattern for Structured Streaming involves three steps: reading from a source, processing the data, and writing to a sink. Here's a simple example that demonstrates this pattern:
+
+```python
+# Read from Kafka
+inputDF = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "host1:port1,host2:port2") \
+    .option("subscribe", "topic1") \
+    .load()
+
+# Process data
+processedDF = inputDF.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)")
+
+# Write to output
+query = processedDF \
+    .writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .start()
+
+query.awaitTermination()
+```
+
+This code creates a streaming DataFrame that reads from Kafka, converts the binary key-value pairs to strings, and outputs the results to the console. The `awaitTermination()` call keeps the application running until manually stopped.
+
+## Data Sources and Sinks
+
+### 1. Apache Kafka Integration
+
+This example demonstrates how to build a real-time transaction processing pipeline that reads JSON messages from Kafka, parses them, and outputs the results. This is a common pattern for financial applications or e-commerce systems that need to process transactions in real-time.
+
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+
+# Define schema for incoming JSON data
+# This schema must match the structure of JSON messages in Kafka
+schema = StructType([
+    StructField("transaction_id", StringType()),
+    StructField("user_id", StringType()),
+    StructField("amount", DoubleType()),
+    StructField("timestamp", StringType())
+])
+
+# Create Spark session with streaming configuration
+# The checkpoint location is crucial for fault tolerance
+spark = SparkSession.builder \
+    .appName("KafkaSparkStreaming") \
+    .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoint") \
+    .getOrCreate()
+
+# Read from Kafka topic 'transactions'
+# startingOffsets="latest" means we only process new messages
+df = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "kafka-broker:9092") \
+    .option("subscribe", "transactions") \
+    .option("startingOffsets", "latest") \
+    .load()
+
+# Parse JSON from Kafka's value column and flatten the structure
+# Kafka messages come as binary, so we cast to string first
+transactions = df \
+    .select(from_json(col("value").cast("string"), schema).alias("data")) \
+    .select("data.*")
+
+# Output processed transactions to console for monitoring
+# In production, you'd write to a database or another Kafka topic
+query = transactions \
+    .writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .start()
+
+query.awaitTermination()
+```
+
+This pipeline processes each transaction message as it arrives, making it suitable for real-time fraud detection, analytics dashboards, or downstream system notifications.
+
+### 2. File Source Integration
+
+This example shows how to process files as they arrive in a directory, which is useful for batch-like streaming where files are dropped periodically (e.g., hourly sales reports, log files from different systems).
+
+```python
+# Read from file system (CSV, JSON, Parquet, etc.)
+# maxFilesPerTrigger=1 processes one file at a time for controlled throughput
+streamingDF = spark \
+    .readStream \
+    .schema(schema) \
+    .option("maxFilesPerTrigger", 1) \
+    .csv("hdfs://path/to/input/dir/")
+
+# Process data - aggregate transactions by user
+# This creates a running total of amounts per user
+processedDF = streamingDF.groupBy("user_id").sum("amount")
+
+# Write aggregated results to Parquet files
+# Each micro-batch creates a new Parquet file with the latest aggregations
+query = processedDF \
+    .writeStream \
+    .format("parquet") \
+    .option("path", "hdfs://path/to/output/dir") \
+    .option("checkpointLocation", "/tmp/checkpoint") \
+    .start()
+```
+
+This pattern is ideal for processing log files, CSV exports, or any scenario where data arrives as files rather than streaming messages.
+
+## Stateful Processing with Structured Streaming
+
+### 1. Event-time Processing
+
+Event-time processing handles data based on when events actually occurred, not when they arrive at the system. This is crucial for accurate analytics when dealing with late-arriving data or network delays.
+
+```python
+from pyspark.sql.functions import window, current_timestamp
+
+# Add watermark for late-arriving data (30 minutes)
+# This tells Spark to wait up to 30 minutes for late data before finalizing results
+windowedCounts = transactions \
+    .withWatermark("timestamp", "30 minutes") \
+    .groupBy(
+        # Create sliding windows: 10-minute windows sliding every 5 minutes
+        # This means each event appears in multiple overlapping windows
+        window(transactions.timestamp, "10 minutes", "5 minutes"),
+        transactions.user_id
+    ) \
+    .sum("amount")
+```
+
+The watermark mechanism ensures that Spark can safely discard old state data while still handling reasonably late events. This is essential for long-running streaming applications to prevent memory issues.
+
+### 2. Stateful Aggregations
+
+For complex stateful operations like session tracking or custom aggregations, Spark provides `mapGroupsWithState`. This example tracks user sessions and automatically expires inactive sessions after a timeout period.
+
+```python
+# Stateful aggregation with mapGroupsWithState
+from pyspark.sql.streaming import GroupState, GroupStateTimeout
+
+# Define the state schema and update function
+# This class holds the accumulated state for each user
+class UserSession:
+    def __init__(self, user_id, count=0, total_amount=0.0):
+        self.user_id = user_id
+        self.count = count
+        self.total_amount = total_amount
+
+def updateUserState(user_id, values, state):
+    # Handle session timeout - clean up inactive users
+    if state.hasTimedOut:
+        state.remove()
+        return (user_id, state.count, state.total_amount, "inactive")
+    
+    # Update state with new transaction values
+    # Get existing state or create new session
+    total = state.getOption() or UserSession(user_id)
+    for value in values:
+        total.count += 1
+        total.total_amount += value.amount
+    
+    # Save updated state back to Spark's state store
+    state.update(total)
+    
+    # Set timeout to remove state if no updates for 30 minutes
+    # This prevents memory leaks from inactive users
+    state.setTimeoutTimestamp("30 minutes")
+    
+    return (user_id, total.count, total.total_amount, "active")
+
+# Apply stateful processing to track user sessions
+user_sessions = transactions \
+    .groupByKey(lambda x: x.user_id) \
+    .mapGroupsWithState(GroupStateTimeout.ProcessingTimeTimeout, updateUserState)
+```
+
+## Advanced Features
+
+### 1. Structured Streaming with MLlib
+
+```python
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import VectorAssembler, StandardScaler
+from pyspark.ml.clustering import KMeans
+
+# Define ML pipeline
+assembler = VectorAssembler(
+    inputCols=["amount", "transaction_count", "avg_amount"],
+    outputCol="features"
+)
+
+scaler = StandardScaler(
+    inputCol="features",
+    outputCol="scaled_features",
+    withStd=True,
+    withMean=True
+)
+
+kmeans = KMeans(k=3, featuresCol="scaled_features", predictionCol="cluster")
+pipeline = Pipeline(stages=[assembler, scaler, kmeans])
+
+# Train model on streaming data
+model = pipeline.fit(streamingDF)
+
+# Apply model to streaming data
+predictions = model.transform(streamingDF)
+
+# Write predictions to console
+query = predictions \
+    .select("user_id", "prediction") \
+    .writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .start()
+```
+
+### 2. Streaming ETL Pipeline
+
+```python
+# Read from source
+transactions = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "kafka:9092") \
+    .option("subscribe", "transactions") \
+    .load()
+
+# Parse JSON and process
+transactions_parsed = transactions \
+    .select(from_json(col("value").cast("string"), schema).alias("data")) \
+    .select("data.*")
+
+# Enrich with reference data (static join)
+users = spark.table("users")  # Reference data
+enriched = transactions_parsed.join(users, "user_id", "left_outer")
+
+# Write to multiple sinks
+# 1. Write to Parquet for analytics
+query1 = enriched \
+    .writeStream \
+    .format("parquet") \
+    .option("path", "s3a://data-lake/transactions") \
+    .option("checkpointLocation", "/checkpoints/transactions") \
+    .start()
+
+# 2. Write to database
+query2 = enriched \
+    .writeStream \
+    .foreachBatch(lambda batch_df, batch_id: 
+        batch_df.write \
+            .format("jdbc") \
+            .option("url", "jdbc:postgresql://db:5432/transactions") \
+            .option("dbtable", "transactions") \
+            .option("user", "user") \
+            .option("password", "password") \
+            .mode("append") \
+            .save()
+    ) \
+    .start()
+
+# 3. Write to dashboard (via console for demo)
+query3 = enriched \
+    .groupBy("user_segment") \
+    .count() \
+    .writeStream \
+    .outputMode("complete") \
+    .format("console") \
+    .start()
+
+# Wait for all queries to terminate
+spark.streams.awaitAnyTermination()
+```
+
+## Performance Tuning
+
+### 1. Optimizing Parallelism
+
+```python
+# Set optimal number of partitions
+spark.conf.set("spark.sql.shuffle.partitions", "8")
+
+# Repartition data for better parallelism
+df = df.repartition(8, "user_id")
+```
+
+### 2. Memory Management
+
+```python
+# Configure memory settings
+spark.conf.set("spark.executor.memory", "4g")
+spark.conf.set("spark.driver.memory", "2g")
+spark.conf.set("spark.memory.fraction", "0.8")
+spark.conf.set("spark.memory.storageFraction", "0.3")
+
+# Enable G1 GC
+spark.conf.set("spark.executor.extraJavaOptions", "-XX:+UseG1GC")
+```
+
+### 3. Checkpointing and Recovery
+
+```python
+# Configure checkpoint location
+checkpointDir = "hdfs://path/to/checkpoint/dir"
+
+# Create streaming context with checkpoint
+ssc = StreamingContext.getOrCreate(
+    checkpointDir,
+    lambda: createStreamingContext()  # Function to create new context
+)
+```
+
+## Monitoring and Debugging
+
+### 1. Monitoring Streaming Queries
+
+```python
+# Get all active streaming queries
+active_queries = spark.streams.active
+for query in active_queries:
+    print(f"Query: {query.name}")
+    print(f"Status: {query.status}")
+    print(f"Progress: {query.lastProgress}")
+
+# Monitor using Spark UI
+# Access at http://<driver-node>:4040/streaming/
+```
+
+### 2. Handling Failures
+
+```python
+try:
+    query.awaitTermination()
+except Exception as e:
+    print(f"Streaming query failed: {e}")
+    # Handle failure (e.g., send alert, restart query)
+    query.stop()
+    # Restart logic here
+```
+
+## Best Practices
+
+1. **Checkpointing**
+   - Always enable checkpointing for production applications
+   - Use reliable storage (HDFS, S3) for checkpoints
+
+2. **Watermarking**
+   - Set appropriate watermark delays based on data characteristics
+   - Balance between latency and state size
+
+3. **State Management**
+   - Clean up state using timeouts
+   - Monitor state store metrics
+
+4. **Resource Allocation**
+   - Allocate sufficient executor memory
+   - Tune batch intervals based on processing requirements
+
+5. **Monitoring**
+   - Set up alerts for failed batches
+   - Monitor processing time and scheduling delay
+
+## Real-world Use Cases
+
+1. **Fraud Detection**
+   - Real-time pattern matching
+   - Anomaly detection
+   - Velocity checks
+
+2. **IoT Data Processing**
+   - Sensor data aggregation
+   - Predictive maintenance
+   - Real-time alerts
+
+3. **E-commerce Analytics**
+   - Real-time recommendations
+   - Clickstream analysis
+   - Dynamic pricing
+
+4. **Financial Services**
+   - Transaction monitoring
+   - Risk assessment
+   - Compliance checks
+
+## Conclusion
+
+Apache Spark Streaming provides a powerful, scalable, and fault-tolerant platform for processing real-time data streams. By leveraging its rich set of features, including stateful processing, event-time semantics, and exactly-once processing guarantees, you can build robust streaming applications that meet the most demanding requirements.
+
+Remember to:
+- Choose appropriate batch intervals
+- Monitor and tune performance
+- Implement proper error handling and recovery
+- Follow security best practices
+- Test thoroughly with production-like workloads
+
+With these tools and techniques, you'll be well-equipped to build production-grade streaming applications using Apache Spark Streaming.
+
+## Additional Resources
+
+- [Structured Streaming Programming Guide](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html)
+- [Spark Streaming + Kafka Integration Guide](https://spark.apache.org/docs/latest/streaming-kafka-0-10-integration.html)
+- [Performance Tuning](https://spark.apache.org/docs/latest/tuning.html)
+- [Monitoring and Instrumentation](https://spark.apache.org/docs/latest/monitoring.html)
+
+## Structured Streaming Implementation
+
+### Basic Streaming Pipeline
+
+```python
+# Structured Streaming implementation
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+import logging
+
+class StructuredStreamingProcessor:
+    def __init__(self, app_name: str):
+        self.spark = SparkSession.builder \
+            .appName(app_name) \
+            .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoint") \
+            .getOrCreate()
+        
+        self.logger = logging.getLogger(__name__)
+    
+    def create_kafka_source(self, kafka_config: Dict, topics: List[str]):
+        """Create Kafka streaming source"""
+        try:
+            df = self.spark \
+                .readStream \
+                .format("kafka") \
+                .option("kafka.bootstrap.servers", kafka_config['bootstrap_servers']) \
+                .option("subscribe", ",".join(topics)) \
+                .option("startingOffsets", "latest") \
+                .load()
+            
+            self.logger.info(f"Created Kafka source for topics: {topics}")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create Kafka source: {e}")
+            return None
+    
+    def parse_json_messages(self, df, json_schema: StructType):
+        """Parse JSON messages from Kafka"""
+        try:
+            parsed_df = df.select(
+                col("key").cast("string"),
+                from_json(col("value").cast("string"), json_schema).alias("data"),
+                col("timestamp")
+            ).select("key", "data.*", "timestamp")
+            
+            return parsed_df
+            
+        except Exception as e:
+            self.logger.error(f"JSON parsing failed: {e}")
+            return df
+    
+    def create_windowed_aggregations(self, df, time_column: str, 
+                                   window_duration: str, group_columns: List[str] = None):
+        """Create windowed aggregations"""
+        try:
+            windowed_df = df.withColumn("window", window(col(time_column), window_duration))
+            
+            group_cols = ["window"]
+            if group_columns:
+                group_cols.extend(group_columns)
+            
+            result_df = windowed_df.groupBy(*group_cols).count()
+            return result_df
+            
+        except Exception as e:
+            self.logger.error(f"Windowed aggregation failed: {e}")
+            return df
+    
+    def write_to_console(self, df, trigger_interval: str = "10 seconds"):
+        """Write stream to console"""
+        try:
+            query = df.writeStream \
+                .outputMode("complete") \
+                .format("console") \
+                .option("truncate", False) \
+                .trigger(processingTime=trigger_interval) \
+                .start()
+            
+            return query
+            
+        except Exception as e:
+            self.logger.error(f"Console write failed: {e}")
+            return None
+    
+    def write_to_kafka(self, df, kafka_config: Dict, topic: str):
+        """Write stream to Kafka"""
+        try:
+            kafka_df = df.select(
+                col("key").cast("string"),
+                to_json(struct(*[col(c) for c in df.columns if c != "key"])).alias("value")
+            )
+            
+            query = kafka_df.writeStream \
+                .outputMode("append") \
+                .format("kafka") \
+                .option("kafka.bootstrap.servers", kafka_config['bootstrap_servers']) \
+                .option("topic", topic) \
+                .start()
+            
+            return query
+            
+        except Exception as e:
+            self.logger.error(f"Kafka write failed: {e}")
+            return None
+
+# Example: Real-time analytics pipeline
+def create_analytics_pipeline():
+    processor = StructuredStreamingProcessor("RealTimeAnalytics")
+    
+    # Transaction schema
+    transaction_schema = StructType([
+        StructField("transaction_id", StringType(), True),
+        StructField("user_id", StringType(), True),
+        StructField("amount", DoubleType(), True),
+        StructField("timestamp", TimestampType(), True),
+        StructField("merchant_id", StringType(), True)
+    ])
+    
+    # Create Kafka source
+    kafka_config = {'bootstrap_servers': 'localhost:9092'}
+    raw_df = processor.create_kafka_source(kafka_config, ["transactions"])
+    
+    if raw_df:
+        # Parse JSON messages
+        transactions_df = processor.parse_json_messages(raw_df, transaction_schema)
+        
+        # Add watermark for late data
+        watermarked_df = transactions_df.withWatermark("timestamp", "10 minutes")
+        
+        # Create windowed aggregations
+        windowed_df = processor.create_windowed_aggregations(
+            watermarked_df,
+            "timestamp",
+            "5 minutes",
+            ["merchant_id"]
+        )
+        
+        # Add calculated fields
+        enriched_df = windowed_df.select(
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            col("merchant_id"),
+            col("count").alias("transaction_count")
+        )
+        
+        # Write to console
+        query = processor.write_to_console(enriched_df, "30 seconds")
+        
+        if query:
+            query.awaitTermination()
+
+# create_analytics_pipeline()
+```
+
+## Advanced Streaming Patterns
+
+### Stateful Processing
+
+```python
+# Stateful stream processing
+from pyspark.sql.streaming.state import GroupState, GroupStateTimeout
+
+class StatefulProcessor:
+    def __init__(self, spark_session):
+        self.spark = spark_session
+    
+    def create_session_aggregator(self, input_df):
+        """Session-based aggregations with state"""
+        
+        def update_session_state(key, values, state: GroupState):
+            if state.hasTimedOut:
+                # Session expired
+                result = state.get
+                state.remove()
+                return result
+            
+            # Initialize or get current state
+            if state.exists:
+                session_data = state.get
+            else:
+                session_data = {
+                    'user_id': key[0],
+                    'session_start': None,
+                    'event_count': 0,
+                    'total_value': 0.0
+                }
+            
+            # Process new events
+            for event in values:
+                if session_data['session_start'] is None:
+                    session_data['session_start'] = event['timestamp']
+                
+                session_data['event_count'] += 1
+                session_data['total_value'] += event.get('value', 0.0)
+            
+            # Update state with timeout
+            state.update(session_data)
+            state.setTimeoutDuration("30 minutes")
+            
+            return session_data
+        
+        # Apply stateful operation
+        result_df = input_df \
+            .groupByKey(lambda row: (row['user_id'],)) \
+            .mapGroupsWithState(
+                update_session_state,
+                GroupStateTimeout.ProcessingTimeTimeout
+            )
+        
+        return result_df
+
+# Usage
+def create_session_pipeline():
+    spark = SparkSession.builder.appName("SessionAnalytics").getOrCreate()
+    processor = StatefulProcessor(spark)
+    
+    # Input stream
+    input_df = spark \
+        .readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", "localhost:9092") \
+        .option("subscribe", "user_events") \
+        .load()
+    
+    # Parse events
+    event_schema = StructType([
+        StructField("user_id", StringType(), True),
+        StructField("event_type", StringType(), True),
+        StructField("timestamp", TimestampType(), True),
+        StructField("value", DoubleType(), True)
+    ])
+    
+    parsed_df = input_df.select(
+        from_json(col("value").cast("string"), event_schema).alias("data")
+    ).select("data.*")
+    
+    # Create session aggregations
+    session_df = processor.create_session_aggregator(parsed_df)
+    
+    # Output
+    query = session_df.writeStream \
+        .outputMode("update") \
+        .format("console") \
+        .start()
+    
+    return query
+```
+
+## Performance Optimization
+
+### Streaming Optimization Techniques
+
+```python
+# Performance optimization for Spark Streaming
+class StreamingOptimizer:
+    @staticmethod
+    def optimize_spark_config(spark_session):
+        """Apply performance optimizations"""
+        
+        optimizations = {
+            # Enable adaptive query execution
+            "spark.sql.adaptive.enabled": "true",
+            "spark.sql.adaptive.coalescePartitions.enabled": "true",
+            
+            # Streaming-specific settings
+            "spark.sql.streaming.metricsEnabled": "true",
+            "spark.sql.streaming.stateStore.maintenanceInterval": "60s",
+            
+            # Kafka optimizations
+            "spark.streaming.kafka.maxRatePerPartition": "1000",
+            "spark.sql.streaming.kafka.consumer.cache.capacity": "64"
+        }
+        
+        for key, value in optimizations.items():
+            spark_session.conf.set(key, value)
+    
+    @staticmethod
+    def optimize_partitioning(df, partition_columns: List[str]):
+        """Optimize DataFrame partitioning"""
+        return df.repartition(*[col(c) for c in partition_columns])
+    
+    @staticmethod
+    def monitor_streaming_query(query):
+        """Monitor streaming query performance"""
+        
+        def print_progress():
+            progress = query.lastProgress
+            if progress:
+                print(f"Batch ID: {progress.get('batchId', 'N/A')}")
+                print(f"Input Rate: {progress.get('inputRowsPerSecond', 0):.2f} rows/sec")
+                print(f"Processing Rate: {progress.get('processedRowsPerSecond', 0):.2f} rows/sec")
+                print(f"Batch Duration: {progress.get('batchDuration', 0)} ms")
+                print("---")
+        
+        return print_progress
+
+# Usage
+optimizer = StreamingOptimizer()
+spark = SparkSession.builder.appName("OptimizedStreaming").getOrCreate()
+optimizer.optimize_spark_config(spark)
+```
+
+## Error Handling and Monitoring
+
+### Robust Stream Processing
+
+```python
+# Error handling and monitoring
+class RobustStreamProcessor:
+    def __init__(self, spark_session):
+        self.spark = spark_session
+        self.error_count = 0
+        
+    def create_fault_tolerant_stream(self, kafka_config: Dict, topics: List[str]):
+        """Create fault-tolerant streaming source"""
+        
+        try:
+            df = self.spark \
+                .readStream \
+                .format("kafka") \
+                .option("kafka.bootstrap.servers", kafka_config['bootstrap_servers']) \
+                .option("subscribe", ",".join(topics)) \
+                .option("failOnDataLoss", "false") \
+                .option("maxOffsetsPerTrigger", "1000") \
+                .load()
+            
+            return df
+            
+        except Exception as e:
+            self.error_count += 1
+            logging.error(f"Stream creation failed: {e}")
+            return None
+    
+    def add_error_handling(self, df, error_topic: str):
+        """Add error handling to stream processing"""
+        
+        def process_with_error_handling(batch_df, batch_id):
+            try:
+                # Process the batch
+                processed_df = batch_df.filter(col("value").isNotNull())
+                
+                # Write successful records
+                processed_df.write \
+                    .format("console") \
+                    .mode("append") \
+                    .save()
+                
+                print(f"Batch {batch_id}: Processed {processed_df.count()} records")
+                
+            except Exception as e:
+                # Log error and optionally send to error topic
+                logging.error(f"Batch {batch_id} failed: {e}")
+                
+                # Send failed batch to error topic
+                error_df = batch_df.withColumn("error_message", lit(str(e)))
+                error_df.write \
+                    .format("kafka") \
+                    .option("kafka.bootstrap.servers", "localhost:9092") \
+                    .option("topic", error_topic) \
+                    .save()
+        
+        return df.writeStream.foreachBatch(process_with_error_handling)
+
+# Usage
+processor = RobustStreamProcessor(spark)
+kafka_config = {'bootstrap_servers': 'localhost:9092'}
+stream_df = processor.create_fault_tolerant_stream(kafka_config, ["input_topic"])
+
+if stream_df:
+    query = processor.add_error_handling(stream_df, "error_topic").start()
+    query.awaitTermination()
+```
+
+## Best Practices
+
+### Streaming Best Practices
+
+1. **Checkpointing**
+   - Always set checkpoint location
+   - Use reliable storage (HDFS, S3)
+   - Regular checkpoint cleanup
+
+2. **State Management**
+   - Use watermarks for late data
+   - Set appropriate state timeouts
+   - Monitor state store size
+
+3. **Performance Tuning**
+   - Optimize batch size and intervals
+   - Use appropriate partitioning
+   - Monitor resource utilization
+
+4. **Error Handling**
+   - Implement retry mechanisms
+   - Use dead letter queues
+   - Monitor failure rates
+
+5. **Monitoring**
+   - Track streaming metrics
+   - Set up alerting
+   - Monitor lag and throughput
+
+## Common Use Cases
+
+### Real-Time Analytics
+- **Web analytics** - Track user behavior in real-time
+- **IoT monitoring** - Process sensor data streams
+- **Financial analytics** - Real-time trading analysis
+- **Fraud detection** - Detect suspicious patterns
+
+### Data Integration
+- **ETL streaming** - Real-time data transformation
+- **Data synchronization** - Keep systems in sync
+- **Event processing** - Process business events
+- **Log processing** - Real-time log analysis
+
+## Summary
+
+Apache Spark Streaming provides:
+
+- **Unified API** - Same API for batch and streaming
+- **Fault tolerance** - Exactly-once processing guarantees
+- **Scalability** - Handle high-throughput streams
+- **Integration** - Works with various data sources and sinks
+
+Key considerations:
+- Choose appropriate trigger intervals
+- Implement proper error handling
+- Monitor performance metrics
+- Use checkpointing for fault tolerance
+
+---
+
+**Next**: Learn about [Apache Flink](/chapters/stream-processing/apache-flink) for low-latency stream processing.

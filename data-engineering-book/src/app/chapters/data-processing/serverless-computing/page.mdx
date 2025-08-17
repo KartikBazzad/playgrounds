@@ -1,0 +1,521 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Serverless Computing
+
+Serverless computing enables event-driven data processing without managing infrastructure. It automatically scales based on demand and charges only for actual compute time, making it ideal for intermittent workloads and real-time data processing.
+
+## Serverless Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Event Sources"
+        ES1[API Gateway]
+        ES2[S3 Buckets]
+        ES3[Database Changes]
+        ES4[Message Queues]
+        ES5[Scheduled Events]
+    end
+    
+    subgraph "Serverless Functions"
+        SF1[AWS Lambda]
+        SF2[Azure Functions]
+        SF3[Google Cloud Functions]
+        SF4[Vercel Functions]
+    end
+    
+    subgraph "Data Processing"
+        DP1[Data Transformation]
+        DP2[Real-time Analytics]
+        DP3[ETL Operations]
+        DP4[Stream Processing]
+    end
+    
+    ES1 --> SF1
+    ES2 --> SF2
+    ES3 --> SF3
+    ES4 --> SF4
+    ES5 --> SF1
+    
+    SF1 --> DP1
+    SF2 --> DP2
+    SF3 --> DP3
+    SF4 --> DP4
+    
+    style SF1 fill:#e3f2fd
+    style DP1 fill:#e8f5e8
+`} />
+
+## AWS Lambda Functions
+
+### Lambda-based Data Processing
+
+```python
+# AWS Lambda functions for data processing
+import json
+import boto3
+import pandas as pd
+from datetime import datetime, timezone
+from typing import Dict, List, Any
+import logging
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+class LambdaDataProcessor:
+    """AWS Lambda data processing utilities"""
+    
+    def __init__(self):
+        self.s3_client = boto3.client('s3')
+        self.dynamodb = boto3.resource('dynamodb')
+        self.sns_client = boto3.client('sns')
+    
+    def process_s3_event(self, event: Dict, context) -> Dict:
+        """Process S3 bucket events"""
+        
+        try:
+            records_processed = 0
+            
+            for record in event['Records']:
+                # Extract S3 event information
+                bucket_name = record['s3']['bucket']['name']
+                object_key = record['s3']['object']['key']
+                event_name = record['eventName']
+                
+                logger.info(f"Processing {event_name} for {object_key} in {bucket_name}")
+                
+                if event_name.startswith('ObjectCreated'):
+                    # Process new file
+                    self._process_new_file(bucket_name, object_key)
+                
+                records_processed += 1
+            
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'message': f'Successfully processed {records_processed} records',
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                })
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing S3 event: {str(e)}")
+            return {
+                'statusCode': 500,
+                'body': json.dumps({'error': str(e)})
+            }
+    
+    def _process_new_file(self, bucket_name: str, object_key: str):
+        """Process newly uploaded file"""
+        
+        try:
+            # Download file from S3
+            response = self.s3_client.get_object(Bucket=bucket_name, Key=object_key)
+            file_content = response['Body'].read()
+            
+            # Determine file type and process accordingly
+            if object_key.endswith('.csv'):
+                self._process_csv_file(file_content, bucket_name, object_key)
+            elif object_key.endswith('.json'):
+                self._process_json_file(file_content, bucket_name, object_key)
+            
+            logger.info(f"Successfully processed file: {object_key}")
+            
+        except Exception as e:
+            logger.error(f"Error processing file {object_key}: {str(e)}")
+            raise
+    
+    def _process_csv_file(self, file_content: bytes, bucket_name: str, object_key: str):
+        """Process CSV file"""
+        
+        # Read CSV data
+        df = pd.read_csv(pd.io.common.BytesIO(file_content))
+        
+        # Data validation and cleaning
+        df = self._clean_dataframe(df)
+        
+        # Perform transformations
+        df['processed_timestamp'] = datetime.now(timezone.utc).isoformat()
+        df['source_file'] = object_key
+        
+        # Calculate statistics
+        stats = {
+            'total_rows': len(df),
+            'columns': df.columns.tolist(),
+            'null_counts': df.isnull().sum().to_dict()
+        }
+        
+        # Save processed data
+        processed_key = f"processed/{object_key.replace('.csv', '_processed.json')}"
+        self._save_processed_data(df, bucket_name, processed_key)
+        
+        # Store metadata
+        self._store_file_metadata(object_key, stats)
+        
+        logger.info(f"CSV processing completed. Rows: {len(df)}")
+    
+    def _process_json_file(self, file_content: bytes, bucket_name: str, object_key: str):
+        """Process JSON file"""
+        
+        try:
+            # Parse JSON data
+            data = json.loads(file_content.decode('utf-8'))
+            
+            # Handle different JSON structures
+            if isinstance(data, list):
+                df = pd.DataFrame(data)
+            elif isinstance(data, dict):
+                df = pd.json_normalize(data)
+            else:
+                raise ValueError("Unsupported JSON structure")
+            
+            # Process similar to CSV
+            df = self._clean_dataframe(df)
+            df['processed_timestamp'] = datetime.now(timezone.utc).isoformat()
+            df['source_file'] = object_key
+            
+            # Save processed data
+            processed_key = f"processed/{object_key.replace('.json', '_processed.json')}"
+            self._save_processed_data(df, bucket_name, processed_key)
+            
+            logger.info(f"JSON processing completed. Records: {len(df)}")
+            
+        except Exception as e:
+            logger.error(f"Error processing JSON file: {str(e)}")
+            raise
+    
+    def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and validate DataFrame"""
+        
+        # Remove completely empty rows
+        df = df.dropna(how='all')
+        
+        # Convert data types
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                # Try to convert to numeric if possible
+                try:
+                    df[col] = pd.to_numeric(df[col], errors='ignore')
+                except:
+                    pass
+        
+        return df
+    
+    def _save_processed_data(self, df: pd.DataFrame, bucket_name: str, object_key: str):
+        """Save processed data to S3"""
+        
+        # Convert DataFrame to JSON
+        json_data = df.to_json(orient='records', date_format='iso')
+        
+        # Upload to S3
+        self.s3_client.put_object(
+            Bucket=bucket_name,
+            Key=object_key,
+            Body=json_data,
+            ContentType='application/json'
+        )
+    
+    def _store_file_metadata(self, object_key: str, stats: Dict):
+        """Store file processing metadata in DynamoDB"""
+        
+        table = self.dynamodb.Table('file_processing_metadata')
+        
+        table.put_item(
+            Item={
+                'file_key': object_key,
+                'processed_timestamp': datetime.now(timezone.utc).isoformat(),
+                'statistics': stats,
+                'status': 'completed'
+            }
+        )
+
+# Lambda function handlers
+def lambda_s3_handler(event, context):
+    """Main Lambda handler for S3 events"""
+    
+    processor = LambdaDataProcessor()
+    return processor.process_s3_event(event, context)
+
+def lambda_api_handler(event, context):
+    """Lambda handler for API Gateway events"""
+    
+    try:
+        # Parse request
+        http_method = event['httpMethod']
+        path = event['path']
+        query_params = event.get('queryStringParameters', {}) or {}
+        
+        if http_method == 'GET' and path == '/process-status':
+            # Get processing status
+            file_key = query_params.get('file_key')
+            
+            if not file_key:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({'error': 'file_key parameter required'})
+                }
+            
+            # Query DynamoDB for status
+            dynamodb = boto3.resource('dynamodb')
+            table = dynamodb.Table('file_processing_metadata')
+            
+            response = table.get_item(Key={'file_key': file_key})
+            
+            if 'Item' in response:
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps(response['Item'], default=str)
+                }
+            else:
+                return {
+                    'statusCode': 404,
+                    'body': json.dumps({'error': 'File not found'})
+                }
+        
+        else:
+            return {
+                'statusCode': 404,
+                'body': json.dumps({'error': 'Endpoint not found'})
+            }
+    
+    except Exception as e:
+        logger.error(f"API handler error: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
+
+def lambda_scheduled_handler(event, context):
+    """Lambda handler for scheduled events"""
+    
+    try:
+        logger.info("Starting scheduled data processing job")
+        
+        # Example: Daily data aggregation
+        dynamodb = boto3.resource('dynamodb')
+        table = dynamodb.Table('file_processing_metadata')
+        
+        # Scan for recent files
+        response = table.scan()
+        recent_files = response['Items']
+        
+        # Generate daily summary
+        summary = {
+            'date': datetime.now(timezone.utc).date().isoformat(),
+            'files_processed': len(recent_files),
+            'processing_timestamp': datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info(f"Daily summary generated: {summary}")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Scheduled processing completed',
+                'summary': summary
+            })
+        }
+    
+    except Exception as e:
+        logger.error(f"Scheduled handler error: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
+```
+
+## Azure Functions
+
+### Azure Functions Implementation
+
+```python
+# Azure Functions for data processing
+import azure.functions as func
+import json
+import pandas as pd
+from datetime import datetime, timezone
+import logging
+
+def blob_trigger_function(myblob: func.InputStream) -> None:
+    """Azure Function triggered by blob storage events"""
+    
+    logging.info(f"Processing blob: {myblob.name}, Size: {myblob.length} bytes")
+    
+    try:
+        # Read blob content
+        blob_content = myblob.read()
+        
+        # Determine file type and process
+        if myblob.name.endswith('.csv'):
+            df = pd.read_csv(pd.io.common.BytesIO(blob_content))
+        elif myblob.name.endswith('.json'):
+            data = json.loads(blob_content.decode('utf-8'))
+            df = pd.DataFrame(data) if isinstance(data, list) else pd.json_normalize(data)
+        else:
+            logging.warning(f"Unsupported file type: {myblob.name}")
+            return
+        
+        # Process data
+        df['processed_timestamp'] = datetime.now(timezone.utc).isoformat()
+        df['source_blob'] = myblob.name
+        
+        # Calculate statistics
+        stats = {
+            'blob_name': myblob.name,
+            'total_rows': len(df),
+            'columns': df.columns.tolist(),
+            'processed_timestamp': datetime.now(timezone.utc).isoformat(),
+            'file_size_bytes': myblob.length
+        }
+        
+        logging.info(f"Successfully processed {myblob.name}: {len(df)} rows")
+        
+    except Exception as e:
+        logging.error(f"Error processing blob {myblob.name}: {str(e)}")
+        raise
+
+def http_trigger_function(req: func.HttpRequest) -> func.HttpResponse:
+    """Azure Function triggered by HTTP requests"""
+    
+    logging.info('HTTP trigger function processed a request.')
+    
+    try:
+        method = req.method
+        
+        if method == 'GET':
+            # Get processing status
+            blob_name = req.params.get('blob_name')
+            
+            if not blob_name:
+                return func.HttpResponse(
+                    json.dumps({'error': 'blob_name parameter required'}),
+                    status_code=400,
+                    mimetype='application/json'
+                )
+            
+            # Return mock status
+            return func.HttpResponse(
+                json.dumps({'status': 'processed', 'blob_name': blob_name}),
+                status_code=200,
+                mimetype='application/json'
+            )
+        
+        elif method == 'POST':
+            # Trigger manual processing
+            try:
+                req_body = req.get_json()
+                container_name = req_body.get('container_name')
+                blob_name = req_body.get('blob_name')
+                
+                if not container_name or not blob_name:
+                    return func.HttpResponse(
+                        json.dumps({'error': 'container_name and blob_name required'}),
+                        status_code=400,
+                        mimetype='application/json'
+                    )
+                
+                return func.HttpResponse(
+                    json.dumps({'message': 'Processing triggered successfully'}),
+                    status_code=200,
+                    mimetype='application/json'
+                )
+                
+            except ValueError:
+                return func.HttpResponse(
+                    json.dumps({'error': 'Invalid JSON in request body'}),
+                    status_code=400,
+                    mimetype='application/json'
+                )
+        
+        else:
+            return func.HttpResponse(
+                json.dumps({'error': 'Method not allowed'}),
+                status_code=405,
+                mimetype='application/json'
+            )
+    
+    except Exception as e:
+        logging.error(f"HTTP trigger error: {str(e)}")
+        return func.HttpResponse(
+            json.dumps({'error': str(e)}),
+            status_code=500,
+            mimetype='application/json'
+        )
+
+def timer_trigger_function(mytimer: func.TimerRequest) -> None:
+    """Azure Function triggered by timer (scheduled)"""
+    
+    logging.info('Timer trigger function started')
+    
+    try:
+        # Generate daily summary
+        summary = {
+            'summary_timestamp': datetime.now(timezone.utc).isoformat(),
+            'total_files': 0,
+            'total_rows': 0
+        }
+        
+        logging.info(f"Daily summary generated: {summary}")
+        
+    except Exception as e:
+        logging.error(f"Timer trigger error: {str(e)}")
+        raise
+```
+
+## Best Practices
+
+### Serverless Development Guidelines
+
+1. **Function Design**
+   - Keep functions small and focused
+   - Use environment variables for configuration
+   - Implement proper error handling
+
+2. **Performance Optimization**
+   - Minimize cold start times
+   - Reuse connections and clients
+   - Optimize memory allocation
+
+3. **Cost Management**
+   - Monitor execution time and memory usage
+   - Use appropriate timeout settings
+   - Implement efficient retry logic
+
+4. **Security**
+   - Use IAM roles and permissions
+   - Encrypt sensitive data
+   - Validate input data
+
+## Common Use Cases
+
+### Data Processing Applications
+- **Real-time ETL** - Transform data as it arrives
+- **File processing** - Process uploaded files automatically
+- **Data validation** - Validate data quality in real-time
+- **Event-driven analytics** - React to business events
+
+### Integration Patterns
+- **API backends** - Serverless REST APIs
+- **Webhook handlers** - Process external system events
+- **Scheduled jobs** - Periodic data processing tasks
+- **Stream processing** - Process streaming data events
+
+## Summary
+
+Serverless computing provides:
+
+- **Event-driven processing** - Automatic scaling based on events
+- **Cost efficiency** - Pay only for actual execution time
+- **Simplified operations** - No infrastructure management
+- **Rapid development** - Quick deployment and iteration
+
+Key benefits:
+- Automatic scaling and high availability
+- Reduced operational overhead
+- Built-in monitoring and logging
+- Integration with cloud services
+
+---
+
+**Next**: Learn about [Data Quality and Governance](/chapters/data-quality) for ensuring data reliability and compliance.

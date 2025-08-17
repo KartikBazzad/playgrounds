@@ -1,0 +1,541 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# NoSQL Databases
+
+NoSQL databases provide flexible, scalable alternatives to traditional relational databases. They excel at handling large volumes of unstructured or semi-structured data and offer horizontal scaling capabilities essential for modern data engineering.
+
+## NoSQL Database Types
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "NoSQL Database Types"
+        A[Document Stores]
+        B[Key-Value Stores]
+        C[Column-Family]
+        D[Graph Databases]
+    end
+    
+    subgraph "Document Examples"
+        A --> E[MongoDB]
+        A --> F[CouchDB]
+        A --> G[Amazon DocumentDB]
+    end
+    
+    subgraph "Key-Value Examples"
+        B --> H[Redis]
+        B --> I[DynamoDB]
+        B --> J[Riak]
+    end
+    
+    subgraph "Column-Family Examples"
+        C --> K[Cassandra]
+        C --> L[HBase]
+        C --> M[BigTable]
+    end
+    
+    subgraph "Graph Examples"
+        D --> N[Neo4j]
+        D --> O[Amazon Neptune]
+        D --> P[ArangoDB]
+    end
+    
+    style A fill:#e3f2fd
+    style B fill:#e8f5e8
+    style C fill:#fff3e0
+    style D fill:#f3e5f5
+`} />
+
+## Document Databases
+
+Document databases store data as documents (typically JSON), making them ideal for content management, catalogs, and user profiles.
+
+### MongoDB Implementation
+
+```python
+# MongoDB for data engineering workloads
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+from typing import Dict, List, Any
+import pandas as pd
+
+class MongoDataPipeline:
+    def __init__(self, connection_string: str, database_name: str):
+        self.client = MongoClient(connection_string)
+        self.db = self.client[database_name]
+    
+    def insert_user_events(self, events: List[Dict[str, Any]]):
+        collection = self.db.user_events
+        
+        # Ensure indexes exist
+        collection.create_index([("user_id", 1), ("timestamp", -1)])
+        collection.create_index([("event_type", 1)])
+        
+        # Insert events with metadata
+        enriched_events = []
+        for event in events:
+            enriched_event = {
+                **event,
+                "inserted_at": datetime.utcnow(),
+                "processed": False
+            }
+            enriched_events.append(enriched_event)
+        
+        result = collection.insert_many(enriched_events)
+        return result.inserted_ids
+    
+    def aggregate_user_behavior(self, start_date: datetime, end_date: datetime):
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": start_date, "$lte": end_date}}},
+            {
+                "$group": {
+                    "_id": "$user_id",
+                    "total_events": {"$sum": 1},
+                    "event_types": {"$addToSet": "$event_type"},
+                    "total_value": {"$sum": {"$ifNull": ["$value", 0]}},
+                    "first_event": {"$min": "$timestamp"},
+                    "last_event": {"$max": "$timestamp"}
+                }
+            },
+            {"$sort": {"total_value": -1}}
+        ]
+        
+        return list(self.db.user_events.aggregate(pipeline))
+
+# Usage
+mongo_pipeline = MongoDataPipeline("mongodb://localhost:27017", "analytics")
+
+sample_events = [
+    {
+        "user_id": "user_123",
+        "event_type": "page_view",
+        "page": "/products",
+        "timestamp": datetime.utcnow()
+    },
+    {
+        "user_id": "user_123", 
+        "event_type": "purchase",
+        "product_id": "prod_789",
+        "value": 99.99,
+        "timestamp": datetime.utcnow()
+    }
+]
+
+event_ids = mongo_pipeline.insert_user_events(sample_events)
+```
+
+## Key-Value Stores
+
+Key-value stores provide the simplest NoSQL model, offering high performance for simple read/write operations.
+
+### Redis for Caching and Real-time Analytics
+
+```python
+# Redis implementation for data engineering
+import redis
+import json
+import pickle
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+import pandas as pd
+
+class RedisDataLayer:
+    def __init__(self, host: str = 'localhost', port: int = 6379, db: int = 0):
+        self.redis_client = redis.Redis(host=host, port=port, db=db, decode_responses=True)
+        self.binary_client = redis.Redis(host=host, port=port, db=db)
+    
+    def cache_query_result(self, query_hash: str, result: pd.DataFrame, ttl: int = 3600):
+        """Cache query results with TTL"""
+        serialized_data = pickle.dumps(result)
+        self.binary_client.setex(f"query_cache:{query_hash}", ttl, serialized_data)
+    
+    def get_cached_query_result(self, query_hash: str) -> Optional[pd.DataFrame]:
+        cached_data = self.binary_client.get(f"query_cache:{query_hash}")
+        if cached_data:
+            return pickle.loads(cached_data)
+        return None
+    
+    def track_real_time_metrics(self, metric_name: str, value: float, 
+                               timestamp: Optional[datetime] = None):
+        """Track real-time metrics using Redis sorted sets"""
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+        
+        score = timestamp.timestamp()
+        self.redis_client.zadd(f"metrics:{metric_name}", {str(value): score})
+        
+        # Keep only last 24 hours
+        cutoff_time = (timestamp - timedelta(hours=24)).timestamp()
+        self.redis_client.zremrangebyscore(f"metrics:{metric_name}", 0, cutoff_time)
+    
+    def get_metric_aggregates(self, metric_name: str, time_window: timedelta) -> Dict[str, float]:
+        now = datetime.utcnow()
+        start_time = (now - time_window).timestamp()
+        
+        values = self.redis_client.zrangebyscore(
+            f"metrics:{metric_name}", 
+            start_time, 
+            now.timestamp()
+        )
+        
+        if not values:
+            return {"count": 0, "sum": 0, "avg": 0, "min": 0, "max": 0}
+        
+        numeric_values = [float(v) for v in values]
+        
+        return {
+            "count": len(numeric_values),
+            "sum": sum(numeric_values),
+            "avg": sum(numeric_values) / len(numeric_values),
+            "min": min(numeric_values),
+            "max": max(numeric_values)
+        }
+    
+    def create_leaderboard(self, leaderboard_name: str, user_scores: Dict[str, float]):
+        self.redis_client.zadd(f"leaderboard:{leaderboard_name}", user_scores)
+    
+    def get_leaderboard(self, leaderboard_name: str, top_n: int = 10) -> List[Dict[str, Any]]:
+        top_users = self.redis_client.zrevrange(
+            f"leaderboard:{leaderboard_name}",
+            0, top_n - 1, withscores=True
+        )
+        
+        return [
+            {"user": user, "score": score, "rank": idx + 1}
+            for idx, (user, score) in enumerate(top_users)
+        ]
+
+# Usage
+redis_layer = RedisDataLayer()
+
+# Cache query results
+sample_df = pd.DataFrame({'user_id': [1, 2, 3], 'revenue': [100, 200, 150]})
+redis_layer.cache_query_result("user_revenue_query_123", sample_df)
+
+# Track metrics
+redis_layer.track_real_time_metrics("page_views", 1)
+redis_layer.track_real_time_metrics("api_calls", 5)
+
+# Get aggregates
+metrics = redis_layer.get_metric_aggregates("page_views", timedelta(hours=1))
+print(f"Page views in last hour: {metrics}")
+```
+
+## Column-Family Databases
+
+Column-family databases excel at handling large amounts of data with high write throughput.
+
+### Apache Cassandra for Time-Series Data
+
+```python
+# Cassandra implementation for time-series data
+from cassandra.cluster import Cluster
+from datetime import datetime, timedelta
+import uuid
+import pandas as pd
+
+class CassandraTimeSeries:
+    def __init__(self, hosts: list, keyspace: str):
+        self.cluster = Cluster(hosts)
+        self.session = self.cluster.connect()
+        self.keyspace = keyspace
+        
+        # Create keyspace
+        self.session.execute(f"""
+            CREATE KEYSPACE IF NOT EXISTS {keyspace}
+            WITH REPLICATION = {{
+                'class': 'SimpleStrategy',
+                'replication_factor': 3
+            }}
+        """)
+        
+        self.session.set_keyspace(keyspace)
+        self.create_tables()
+    
+    def create_tables(self):
+        # Time-series table partitioned by day
+        self.session.execute("""
+            CREATE TABLE IF NOT EXISTS user_events_by_day (
+                user_id TEXT,
+                event_date DATE,
+                event_time TIMESTAMP,
+                event_id UUID,
+                event_type TEXT,
+                event_data MAP<TEXT, TEXT>,
+                value DOUBLE,
+                PRIMARY KEY ((user_id, event_date), event_time, event_id)
+            ) WITH CLUSTERING ORDER BY (event_time DESC)
+        """)
+        
+        # Metrics table
+        self.session.execute("""
+            CREATE TABLE IF NOT EXISTS metrics_by_hour (
+                metric_name TEXT,
+                hour_bucket TIMESTAMP,
+                timestamp TIMESTAMP,
+                value DOUBLE,
+                tags MAP<TEXT, TEXT>,
+                PRIMARY KEY ((metric_name, hour_bucket), timestamp)
+            ) WITH CLUSTERING ORDER BY (timestamp DESC)
+        """)
+    
+    def insert_user_event(self, user_id: str, event_type: str, 
+                         event_data: dict, value: float = 0.0):
+        now = datetime.utcnow()
+        event_date = now.date()
+        event_id = uuid.uuid4()
+        
+        self.session.execute("""
+            INSERT INTO user_events_by_day 
+            (user_id, event_date, event_time, event_id, event_type, event_data, value)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [user_id, event_date, now, event_id, event_type, event_data, value])
+        
+        return event_id
+    
+    def insert_metric(self, metric_name: str, value: float, 
+                     tags: dict = None, timestamp: datetime = None):
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+        
+        hour_bucket = timestamp.replace(minute=0, second=0, microsecond=0)
+        
+        if tags is None:
+            tags = {}
+        
+        self.session.execute("""
+            INSERT INTO metrics_by_hour 
+            (metric_name, hour_bucket, timestamp, value, tags)
+            VALUES (?, ?, ?, ?, ?)
+        """, [metric_name, hour_bucket, timestamp, value, tags])
+    
+    def get_user_events(self, user_id: str, start_date: datetime, end_date: datetime):
+        events = []
+        current_date = start_date.date()
+        end_date_only = end_date.date()
+        
+        while current_date <= end_date_only:
+            rows = self.session.execute("""
+                SELECT * FROM user_events_by_day
+                WHERE user_id = ? AND event_date = ?
+                AND event_time >= ? AND event_time <= ?
+            """, [user_id, current_date, start_date, end_date])
+            
+            for row in rows:
+                events.append({
+                    'user_id': row.user_id,
+                    'event_time': row.event_time,
+                    'event_type': row.event_type,
+                    'value': row.value
+                })
+            
+            current_date += timedelta(days=1)
+        
+        return events
+
+# Usage
+cassandra_ts = CassandraTimeSeries(['127.0.0.1'], 'analytics')
+
+# Insert events
+event_id = cassandra_ts.insert_user_event(
+    user_id="user_123",
+    event_type="purchase", 
+    event_data={"product": "laptop"},
+    value=999.99
+)
+
+# Insert metrics
+cassandra_ts.insert_metric("page_views", 1.0, {"page": "/home"})
+```
+
+## Graph Databases
+
+Graph databases excel at managing highly connected data and complex relationships.
+
+### Neo4j for Relationship Analysis
+
+```python
+# Neo4j implementation for relationship analysis
+from neo4j import GraphDatabase
+from typing import Dict, List, Any
+
+class Neo4jGraphAnalytics:
+    def __init__(self, uri: str, username: str, password: str):
+        self.driver = GraphDatabase.driver(uri, auth=(username, password))
+    
+    def close(self):
+        self.driver.close()
+    
+    def create_user_network(self, users: List[Dict], relationships: List[Dict]):
+        with self.driver.session() as session:
+            # Create users
+            for user in users:
+                session.run("""
+                    MERGE (u:User {user_id: $user_id})
+                    SET u.name = $name, u.email = $email
+                """, user_id=user['user_id'], name=user['name'], email=user['email'])
+            
+            # Create relationships
+            for rel in relationships:
+                session.run("""
+                    MATCH (u1:User {user_id: $user1}), (u2:User {user_id: $user2})
+                    MERGE (u1)-[r:CONNECTED {type: $rel_type}]->(u2)
+                    SET r.strength = $strength, r.created_at = $created_at
+                """, user1=rel['user1'], user2=rel['user2'], 
+                     rel_type=rel['type'], strength=rel['strength'],
+                     created_at=rel['created_at'])
+    
+    def find_influential_users(self, limit: int = 10):
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (u:User)-[r:CONNECTED]->()
+                RETURN u.user_id as user_id, u.name as name, 
+                       count(r) as connections,
+                       avg(r.strength) as avg_strength
+                ORDER BY connections DESC, avg_strength DESC
+                LIMIT $limit
+            """, limit=limit)
+            
+            return [record.data() for record in result]
+    
+    def recommend_connections(self, user_id: str, limit: int = 5):
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (u:User {user_id: $user_id})-[:CONNECTED]->(friend)-[:CONNECTED]->(recommendation)
+                WHERE NOT (u)-[:CONNECTED]->(recommendation) AND u <> recommendation
+                RETURN recommendation.user_id as user_id, 
+                       recommendation.name as name,
+                       count(*) as mutual_connections
+                ORDER BY mutual_connections DESC
+                LIMIT $limit
+            """, user_id=user_id, limit=limit)
+            
+            return [record.data() for record in result]
+    
+    def analyze_network_metrics(self):
+        with self.driver.session() as session:
+            # Total users and connections
+            result = session.run("""
+                MATCH (u:User)
+                OPTIONAL MATCH (u)-[r:CONNECTED]->()
+                RETURN count(DISTINCT u) as total_users,
+                       count(r) as total_connections,
+                       avg(count(r)) as avg_connections_per_user
+            """)
+            
+            return result.single().data()
+
+# Usage
+graph_db = Neo4jGraphAnalytics("bolt://localhost:7687", "neo4j", "password")
+
+# Sample data
+users = [
+    {"user_id": "user1", "name": "Alice", "email": "alice@example.com"},
+    {"user_id": "user2", "name": "Bob", "email": "bob@example.com"}
+]
+
+relationships = [
+    {"user1": "user1", "user2": "user2", "type": "friend", 
+     "strength": 0.8, "created_at": "2024-01-01"}
+]
+
+graph_db.create_user_network(users, relationships)
+influential_users = graph_db.find_influential_users()
+print("Influential users:", influential_users)
+```
+
+## NoSQL Design Patterns
+
+### Polyglot Persistence
+
+```python
+# Polyglot persistence implementation
+class PolyglotDataLayer:
+    def __init__(self):
+        self.mongo = MongoDataPipeline("mongodb://localhost", "analytics")
+        self.redis = RedisDataLayer()
+        self.cassandra = CassandraTimeSeries(['127.0.0.1'], 'timeseries')
+        self.neo4j = Neo4jGraphAnalytics("bolt://localhost:7687", "neo4j", "password")
+    
+    def store_user_event(self, event_data: dict):
+        # Store detailed event in MongoDB
+        self.mongo.insert_user_events([event_data])
+        
+        # Cache recent events in Redis
+        self.redis.track_real_time_metrics(
+            f"user_events_{event_data['user_id']}", 
+            1.0
+        )
+        
+        # Store time-series data in Cassandra
+        self.cassandra.insert_user_event(
+            event_data['user_id'],
+            event_data['event_type'],
+            event_data.get('metadata', {}),
+            event_data.get('value', 0)
+        )
+    
+    def get_user_360_view(self, user_id: str):
+        # Get detailed events from MongoDB
+        events = self.mongo.aggregate_user_behavior(
+            datetime.utcnow() - timedelta(days=30),
+            datetime.utcnow()
+        )
+        
+        # Get real-time metrics from Redis
+        recent_activity = self.redis.get_metric_aggregates(
+            f"user_events_{user_id}",
+            timedelta(hours=1)
+        )
+        
+        # Get historical trends from Cassandra
+        historical_events = self.cassandra.get_user_events(
+            user_id,
+            datetime.utcnow() - timedelta(days=90),
+            datetime.utcnow()
+        )
+        
+        # Get social connections from Neo4j
+        connections = self.neo4j.recommend_connections(user_id)
+        
+        return {
+            "events": events,
+            "recent_activity": recent_activity,
+            "historical_trends": len(historical_events),
+            "recommended_connections": connections
+        }
+```
+
+## Best Practices
+
+### Data Modeling
+- Design for query patterns, not normalization
+- Consider data access patterns early
+- Plan for scalability from the start
+- Use appropriate consistency levels
+
+### Performance Optimization
+- Implement proper indexing strategies
+- Use connection pooling
+- Monitor query performance
+- Plan for data growth
+
+### Operational Excellence
+- Implement proper backup strategies
+- Monitor cluster health
+- Plan for disaster recovery
+- Use automation for routine tasks
+
+## Summary
+
+NoSQL databases provide essential capabilities for modern data engineering:
+
+- **Document stores** for flexible, schema-less data
+- **Key-value stores** for high-performance caching and simple operations
+- **Column-family** databases for time-series and high-write workloads
+- **Graph databases** for relationship-heavy data
+
+Choose the right NoSQL database based on your data model, access patterns, and scalability requirements.
+
+---
+
+**Next**: Learn about [Data Warehouses](/chapters/data-storage/data-warehouses) to understand how to build analytical data stores.

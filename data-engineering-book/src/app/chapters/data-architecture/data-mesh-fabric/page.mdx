@@ -1,0 +1,435 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Mesh and Data Fabric
+
+Data Mesh and Data Fabric represent two modern approaches to managing data at scale in distributed organizations. Both architectures address the challenges of traditional centralized data platforms while enabling self-service analytics and domain-driven data ownership.
+
+## Data Mesh Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Mesh Architecture"
+        subgraph "Domain 1: Sales"
+            D1P[Data Products]
+            D1A[Domain Analytics]
+            D1O[Data Owner]
+        end
+        
+        subgraph "Domain 2: Marketing"
+            D2P[Data Products]
+            D2A[Domain Analytics]
+            D2O[Data Owner]
+        end
+        
+        subgraph "Federated Governance"
+            FG[Global Policies]
+            FS[Standards]
+            FM[Metadata Management]
+        end
+        
+        subgraph "Self-Service Platform"
+            SP[Data Infrastructure]
+            ST[Developer Tools]
+            SM[Monitoring]
+        end
+    end
+    
+    D1P --> FG
+    D2P --> FG
+    
+    D1P --> SP
+    D2P --> SP
+    
+    style D1P fill:#e3f2fd
+    style D2P fill:#e8f5e8
+    style FG fill:#f3e5f5
+`} />
+
+## Data Mesh Implementation
+
+### Domain-Driven Data Products
+
+```python
+# Data Mesh implementation with domain-driven data products
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+import pandas as pd
+from abc import ABC, abstractmethod
+
+@dataclass
+class DataProduct:
+    name: str
+    domain: str
+    owner: str
+    version: str
+    description: str
+    schema: Dict[str, Any]
+    sla: Dict[str, Any]
+
+class DataProductInterface(ABC):
+    @abstractmethod
+    def get_data(self, filters: Optional[Dict] = None) -> pd.DataFrame:
+        pass
+    
+    @abstractmethod
+    def get_schema(self) -> Dict[str, Any]:
+        pass
+    
+    @abstractmethod
+    def validate_data(self, data: pd.DataFrame) -> bool:
+        pass
+
+class SalesDataProduct(DataProductInterface):
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self.product_spec = DataProduct(
+            name="sales_transactions",
+            domain="sales",
+            owner="sales-team@company.com",
+            version="1.2.0",
+            description="Daily sales transaction data",
+            schema={
+                "transaction_id": {"type": "string", "required": True},
+                "customer_id": {"type": "string", "required": True},
+                "amount": {"type": "decimal", "required": True, "min": 0},
+                "transaction_date": {"type": "datetime", "required": True}
+            },
+            sla={
+                "freshness": "24_hours",
+                "availability": "99.9%",
+                "completeness": "95%"
+            }
+        )
+    
+    def get_data(self, filters: Optional[Dict] = None) -> pd.DataFrame:
+        # Simulate data retrieval
+        sample_data = {
+            'transaction_id': ['txn_001', 'txn_002', 'txn_003'],
+            'customer_id': ['cust_001', 'cust_002', 'cust_003'],
+            'amount': [99.99, 149.50, 75.25],
+            'transaction_date': [datetime.now()] * 3
+        }
+        
+        df = pd.DataFrame(sample_data)
+        
+        if filters:
+            for key, value in filters.items():
+                if key in df.columns:
+                    df = df[df[key] == value]
+        
+        return df
+    
+    def get_schema(self) -> Dict[str, Any]:
+        return self.product_spec.schema
+    
+    def validate_data(self, data: pd.DataFrame) -> bool:
+        # Check required fields
+        required_fields = [field for field, spec in self.product_spec.schema.items() 
+                          if spec.get('required', False)]
+        
+        for field in required_fields:
+            if field not in data.columns or data[field].isnull().any():
+                return False
+        
+        # Check amount is positive
+        if 'amount' in data.columns and (data['amount'] < 0).any():
+            return False
+        
+        return True
+
+class DataMeshPlatform:
+    def __init__(self):
+        self.data_products: Dict[str, DataProductInterface] = {}
+        self.catalog = {}
+    
+    def register_data_product(self, product_id: str, product: DataProductInterface):
+        self.data_products[product_id] = product
+        
+        # Register in catalog
+        metadata = product.get_schema()
+        self.catalog[product_id] = {
+            'metadata': metadata,
+            'registered_at': datetime.now().isoformat()
+        }
+        
+        print(f"Data product '{product_id}' registered successfully")
+    
+    def discover_data_products(self, domain: Optional[str] = None) -> List[Dict]:
+        results = []
+        for product_id, info in self.catalog.items():
+            results.append({
+                'product_id': product_id,
+                **info
+            })
+        return results
+    
+    def get_data_product(self, product_id: str) -> Optional[DataProductInterface]:
+        return self.data_products.get(product_id)
+
+# Usage
+platform = DataMeshPlatform()
+sales_product = SalesDataProduct({'database_url': 'postgresql://localhost/sales'})
+platform.register_data_product('sales_transactions', sales_product)
+
+# Get data
+data = sales_product.get_data({'customer_id': 'cust_001'})
+print(f"Retrieved {len(data)} records")
+```
+
+## Data Fabric Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Fabric"
+        subgraph "Sources"
+            S1[Databases]
+            S2[APIs]
+            S3[Files]
+        end
+        
+        subgraph "Fabric Layer"
+            FL1[Data Virtualization]
+            FL2[Metadata Management]
+            FL3[Data Catalog]
+        end
+        
+        subgraph "Services"
+            SL1[Integration]
+            SL2[Quality]
+            SL3[Governance]
+        end
+        
+        subgraph "Consumption"
+            C1[BI Tools]
+            C2[ML Platforms]
+            C3[Applications]
+        end
+    end
+    
+    S1 --> FL1
+    S2 --> FL1
+    S3 --> FL1
+    
+    FL1 --> SL1
+    FL2 --> SL2
+    FL3 --> SL3
+    
+    SL1 --> C1
+    SL2 --> C2
+    SL3 --> C3
+    
+    style FL1 fill:#e3f2fd
+    style FL2 fill:#e8f5e8
+    style FL3 fill:#fff3e0
+`} />
+
+### Data Fabric Implementation
+
+```python
+# Data Fabric with virtualization and metadata management
+from abc import ABC, abstractmethod
+import pandas as pd
+import requests
+
+class DataSource(ABC):
+    @abstractmethod
+    def connect(self) -> bool:
+        pass
+    
+    @abstractmethod
+    def query(self, query: str) -> pd.DataFrame:
+        pass
+
+class DatabaseSource(DataSource):
+    def __init__(self, connection_string: str, source_id: str):
+        self.connection_string = connection_string
+        self.source_id = source_id
+    
+    def connect(self) -> bool:
+        # Simulate connection
+        return True
+    
+    def query(self, query: str) -> pd.DataFrame:
+        # Simulate database query
+        return pd.DataFrame({
+            'id': [1, 2, 3],
+            'name': ['Product A', 'Product B', 'Product C'],
+            'price': [10.99, 15.99, 8.99]
+        })
+
+class APISource(DataSource):
+    def __init__(self, base_url: str, headers: Dict[str, str]):
+        self.base_url = base_url
+        self.headers = headers
+    
+    def connect(self) -> bool:
+        try:
+            response = requests.get(f"{self.base_url}/health", headers=self.headers)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def query(self, endpoint: str) -> pd.DataFrame:
+        # Simulate API call
+        return pd.DataFrame({
+            'user_id': [1, 2, 3],
+            'activity': ['login', 'purchase', 'logout'],
+            'timestamp': [datetime.now()] * 3
+        })
+
+class DataVirtualization:
+    def __init__(self):
+        self.sources: Dict[str, DataSource] = {}
+        self.virtual_views = {}
+    
+    def register_source(self, source_id: str, source: DataSource):
+        if source.connect():
+            self.sources[source_id] = source
+            print(f"Registered data source: {source_id}")
+        else:
+            raise Exception(f"Failed to connect to: {source_id}")
+    
+    def create_virtual_view(self, view_name: str, source_queries: Dict[str, str]):
+        self.virtual_views[view_name] = source_queries
+    
+    def query_virtual_view(self, view_name: str) -> pd.DataFrame:
+        if view_name not in self.virtual_views:
+            raise ValueError(f"Virtual view '{view_name}' not found")
+        
+        dataframes = []
+        for source_id, query in self.virtual_views[view_name].items():
+            source = self.sources[source_id]
+            df = source.query(query)
+            dataframes.append(df)
+        
+        # Union all dataframes
+        if dataframes:
+            return pd.concat(dataframes, ignore_index=True)
+        
+        return pd.DataFrame()
+
+class MetadataManager:
+    def __init__(self):
+        self.metadata_store = {}
+        self.lineage_graph = {}
+    
+    def register_dataset(self, dataset_id: str, metadata: Dict[str, Any]):
+        self.metadata_store[dataset_id] = {
+            **metadata,
+            'registered_at': datetime.now().isoformat()
+        }
+    
+    def update_lineage(self, source_id: str, target_id: str):
+        if target_id not in self.lineage_graph:
+            self.lineage_graph[target_id] = {'sources': []}
+        
+        self.lineage_graph[target_id]['sources'].append({
+            'source_id': source_id,
+            'created_at': datetime.now().isoformat()
+        })
+    
+    def get_lineage(self, dataset_id: str) -> Dict[str, Any]:
+        return self.lineage_graph.get(dataset_id, {})
+
+class DataFabric:
+    def __init__(self):
+        self.virtualization = DataVirtualization()
+        self.metadata_manager = MetadataManager()
+    
+    def register_data_source(self, source_id: str, source: DataSource, metadata: Dict):
+        self.virtualization.register_source(source_id, source)
+        self.metadata_manager.register_dataset(source_id, metadata)
+    
+    def create_unified_view(self, view_name: str, source_queries: Dict[str, str]):
+        self.virtualization.create_virtual_view(view_name, source_queries)
+        
+        # Update lineage
+        for source_id in source_queries.keys():
+            self.metadata_manager.update_lineage(source_id, view_name)
+    
+    def query_data(self, target: str) -> pd.DataFrame:
+        return self.virtualization.query_virtual_view(target)
+
+# Usage example
+fabric = DataFabric()
+
+# Register sources
+db_source = DatabaseSource("postgresql://localhost/db", "products_db")
+api_source = APISource("https://api.example.com", {"Authorization": "Bearer token"})
+
+fabric.register_data_source("products", db_source, {"type": "database", "domain": "catalog"})
+fabric.register_data_source("user_activity", api_source, {"type": "api", "domain": "analytics"})
+
+# Create unified view
+fabric.create_unified_view("customer_360", {
+    "products": "SELECT * FROM products",
+    "user_activity": "user_events"
+})
+
+# Query unified view
+result = fabric.query_data("customer_360")
+print(f"Unified view returned {len(result)} records")
+```
+
+## Data Mesh vs Data Fabric Comparison
+
+| Aspect | Data Mesh | Data Fabric |
+|--------|-----------|-------------|
+| **Philosophy** | Domain ownership | Unified virtualization |
+| **Data Ownership** | Decentralized | Centralized management |
+| **Architecture** | Federated | Virtualized |
+| **Governance** | Domain-specific + Global | Centralized |
+| **Scalability** | Domain-driven scaling | Infrastructure scaling |
+| **Implementation** | Organizational change | Technology solution |
+
+## Best Practices
+
+### Data Mesh Best Practices
+- **Domain alignment** - Align data products with business domains
+- **Product thinking** - Treat data as products with clear ownership
+- **Self-service platform** - Provide tools for domain teams
+- **Federated governance** - Balance autonomy with standards
+
+### Data Fabric Best Practices
+- **Metadata management** - Comprehensive metadata catalog
+- **Data virtualization** - Abstract physical data locations
+- **Quality monitoring** - Continuous data quality assessment
+- **Lineage tracking** - Maintain complete data lineage
+
+## Implementation Considerations
+
+### Choosing Between Data Mesh and Data Fabric
+
+**Choose Data Mesh when:**
+- Large organization with distinct business domains
+- Need for domain autonomy and ownership
+- Organizational readiness for cultural change
+- Focus on data product development
+
+**Choose Data Fabric when:**
+- Need for unified data access across sources
+- Existing centralized data management
+- Focus on technical integration
+- Requirement for real-time data virtualization
+
+### Hybrid Approach
+
+Many organizations implement a hybrid approach:
+- Use Data Fabric for technical integration
+- Apply Data Mesh principles for governance and ownership
+- Combine virtualization with domain-driven data products
+
+## Summary
+
+Both Data Mesh and Data Fabric address modern data management challenges:
+
+- **Data Mesh** focuses on organizational and governance aspects with domain-driven data products
+- **Data Fabric** provides technical solutions for unified data access and virtualization
+- **Hybrid approaches** can combine the best of both architectures
+
+The choice depends on organizational structure, technical requirements, and cultural readiness for change.
+
+---
+
+**Next**: Learn about [Cloud vs On-Premise](/chapters/data-architecture/cloud-vs-onpremise) data architecture decisions.

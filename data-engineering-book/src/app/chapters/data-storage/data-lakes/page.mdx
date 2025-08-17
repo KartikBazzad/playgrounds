@@ -1,0 +1,842 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Lakes
+
+Data lakes are centralized repositories that allow you to store all your structured and unstructured data at any scale. Unlike traditional data warehouses, data lakes can store raw data without requiring a predefined schema, making them ideal for big data analytics, machine learning, and real-time processing.
+
+## Data Lake Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Structured Data<br/>Databases, APIs]
+        DS2[Semi-Structured<br/>JSON, XML, Logs]
+        DS3[Unstructured<br/>Images, Videos, Text]
+    end
+    
+    subgraph "Ingestion Layer"
+        IL1[Batch Ingestion<br/>ETL/ELT Tools]
+        IL2[Stream Ingestion<br/>Kafka, Kinesis]
+        IL3[API Ingestion<br/>REST, GraphQL]
+    end
+    
+    subgraph "Data Lake Storage"
+        DLS1[Raw Zone<br/>Original Format]
+        DLS2[Processed Zone<br/>Cleaned Data]
+        DLS3[Curated Zone<br/>Business Ready]
+    end
+    
+    subgraph "Processing Layer"
+        PL1[Batch Processing<br/>Spark, MapReduce]
+        PL2[Stream Processing<br/>Flink, Storm]
+        PL3[ML Processing<br/>MLflow, Kubeflow]
+    end
+    
+    subgraph "Consumption Layer"
+        CL1[Analytics<br/>BI Tools]
+        CL2[Data Science<br/>Notebooks]
+        CL3[Applications<br/>APIs, Dashboards]
+    end
+    
+    DS1 --> IL1
+    DS2 --> IL2
+    DS3 --> IL3
+    
+    IL1 --> DLS1
+    IL2 --> DLS1
+    IL3 --> DLS1
+    
+    DLS1 --> DLS2
+    DLS2 --> DLS3
+    
+    DLS1 --> PL1
+    DLS2 --> PL2
+    DLS3 --> PL3
+    
+    PL1 --> CL1
+    PL2 --> CL2
+    PL3 --> CL3
+    
+    style DLS1 fill:#e3f2fd
+    style DLS2 fill:#e8f5e8
+    style DLS3 fill:#fff3e0
+`} />
+
+## Data Lake Implementation
+
+### AWS S3-Based Data Lake
+
+This implementation demonstrates how to build a production-ready data lake on AWS S3 with proper zone separation, metadata management, and query capabilities. The three-zone architecture (raw, processed, curated) follows data lake best practices for data governance and quality.
+
+```python
+# AWS S3-based data lake implementation
+import boto3
+import pandas as pd
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+import logging
+from pathlib import Path
+
+class S3DataLake:
+    """
+    AWS S3-based data lake implementation with three-zone architecture:
+    - Raw Zone: Original data in native format
+    - Processed Zone: Cleaned and validated data
+    - Curated Zone: Business-ready, aggregated data
+    """
+    
+    def __init__(self, bucket_name: str, aws_config: Dict[str, str]):
+        self.bucket_name = bucket_name
+        # Initialize AWS service clients for data lake operations
+        self.s3_client = boto3.client('s3', **aws_config)
+        self.glue_client = boto3.client('glue', **aws_config)  # For metadata catalog
+        self.athena_client = boto3.client('athena', **aws_config)  # For SQL queries
+        
+        self.logger = logging.getLogger(__name__)
+        
+        # Define data lake zones with clear separation of concerns
+        self.zones = {
+            'raw': 'raw-zone',           # Immutable source data
+            'processed': 'processed-zone', # Cleaned, validated data
+            'curated': 'curated-zone'     # Business-ready datasets
+        }
+    
+    def setup_data_lake_structure(self):
+        """
+        Set up data lake folder structure and policies
+        Creates the foundational structure for organized data storage
+        """
+        
+        try:
+            # Create bucket if it doesn't exist
+            self.s3_client.create_bucket(Bucket=self.bucket_name)
+            
+            # Create zone folders
+            for zone_name, zone_path in self.zones.items():
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=f"{zone_path}/",
+                    Body=b''
+                )
+            
+            # Set up lifecycle policies
+            lifecycle_config = {
+                'Rules': [
+                    {
+                        'ID': 'RawDataArchival',
+                        'Status': 'Enabled',
+                        'Filter': {'Prefix': 'raw-zone/'},
+                        'Transitions': [
+                            {
+                                'Days': 30,
+                                'StorageClass': 'STANDARD_IA'
+                            },
+                            {
+                                'Days': 90,
+                                'StorageClass': 'GLACIER'
+                            },
+                            {
+                                'Days': 365,
+                                'StorageClass': 'DEEP_ARCHIVE'
+                            }
+                        ]
+                    },
+                    {
+                        'ID': 'ProcessedDataRetention',
+                        'Status': 'Enabled',
+                        'Filter': {'Prefix': 'processed-zone/'},
+                        'Transitions': [
+                            {
+                                'Days': 90,
+                                'StorageClass': 'STANDARD_IA'
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            self.s3_client.put_bucket_lifecycle_configuration(
+                Bucket=self.bucket_name,
+                LifecycleConfiguration=lifecycle_config
+            )
+            
+            # Set up bucket versioning
+            self.s3_client.put_bucket_versioning(
+                Bucket=self.bucket_name,
+                VersioningConfiguration={'Status': 'Enabled'}
+            )
+            
+            self.logger.info(f"Data lake structure created for bucket: {self.bucket_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup data lake structure: {e}")
+            return False
+    
+    def ingest_structured_data(self, data: pd.DataFrame, table_name: str, 
+                             partition_columns: List[str] = None):
+        """Ingest structured data with partitioning"""
+        
+        try:
+            # Add ingestion metadata
+            data['_ingestion_timestamp'] = datetime.now()
+            data['_source_system'] = 'structured_ingestion'
+            
+            # Determine partitioning
+            if partition_columns:
+                # Create partitioned structure
+                for partition_values in data[partition_columns].drop_duplicates().itertuples(index=False):
+                    partition_filter = pd.Series([True] * len(data))
+                    partition_path_parts = []
+                    
+                    for col, value in zip(partition_columns, partition_values):
+                        partition_filter &= (data[col] == value)
+                        partition_path_parts.append(f"{col}={value}")
+                    
+                    partition_data = data[partition_filter]
+                    partition_path = "/".join(partition_path_parts)
+                    
+                    # Save partition
+                    key = f"{self.zones['raw']}/{table_name}/{partition_path}/data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet"
+                    
+                    # Convert to parquet and upload
+                    parquet_buffer = partition_data.to_parquet(index=False)
+                    self.s3_client.put_object(
+                        Bucket=self.bucket_name,
+                        Key=key,
+                        Body=parquet_buffer
+                    )
+            else:
+                # Non-partitioned ingestion
+                key = f"{self.zones['raw']}/{table_name}/data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet"
+                parquet_buffer = data.to_parquet(index=False)
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    Body=parquet_buffer
+                )
+            
+            self.logger.info(f"Structured data ingested for table: {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to ingest structured data: {e}")
+            return False
+    
+    def ingest_unstructured_data(self, file_path: str, data_type: str, 
+                               metadata: Dict[str, Any] = None):
+        """Ingest unstructured data with metadata"""
+        
+        try:
+            file_name = Path(file_path).name
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            # Determine storage path based on data type
+            key = f"{self.zones['raw']}/{data_type}/{timestamp}_{file_name}"
+            
+            # Upload file
+            self.s3_client.upload_file(file_path, self.bucket_name, key)
+            
+            # Store metadata
+            if metadata:
+                metadata_key = f"{key}.metadata.json"
+                metadata['ingestion_timestamp'] = datetime.now().isoformat()
+                metadata['original_filename'] = file_name
+                metadata['file_size'] = Path(file_path).stat().st_size
+                
+                self.s3_client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=metadata_key,
+                    Body=json.dumps(metadata, indent=2)
+                )
+            
+            self.logger.info(f"Unstructured data ingested: {file_name}")
+            return key
+            
+        except Exception as e:
+            self.logger.error(f"Failed to ingest unstructured data: {e}")
+            return None
+    
+    def process_raw_to_processed(self, table_name: str, transformation_logic: str):
+        """Process data from raw to processed zone using Spark"""
+        
+        spark_job_script = f"""
+import sys
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+
+spark = SparkSession.builder.appName("DataLakeProcessing").getOrCreate()
+
+# Read from raw zone
+raw_path = "s3a://{self.bucket_name}/{self.zones['raw']}/{table_name}/"
+df = spark.read.parquet(raw_path)
+
+# Apply transformation logic
+{transformation_logic}
+
+# Write to processed zone
+processed_path = "s3a://{self.bucket_name}/{self.zones['processed']}/{table_name}/"
+df.write.mode("overwrite").parquet(processed_path)
+
+spark.stop()
+"""
+        
+        return spark_job_script
+    
+    def create_curated_views(self, business_rules: Dict[str, str]):
+        """Create curated views for business consumption"""
+        
+        curated_queries = {}
+        
+        for view_name, sql_logic in business_rules.items():
+            curated_query = f"""
+            CREATE OR REPLACE VIEW {view_name} AS
+            {sql_logic}
+            """
+            curated_queries[view_name] = curated_query
+        
+        return curated_queries
+    
+    def setup_data_catalog(self, database_name: str, table_schemas: Dict[str, List[Dict]]):
+        """Set up AWS Glue Data Catalog"""
+        
+        try:
+            # Create database
+            self.glue_client.create_database(
+                DatabaseInput={
+                    'Name': database_name,
+                    'Description': 'Data lake catalog'
+                }
+            )
+            
+            # Create tables for each zone
+            for table_name, columns in table_schemas.items():
+                for zone in self.zones.values():
+                    glue_table_name = f"{table_name}_{zone.replace('-', '_')}"
+                    
+                    self.glue_client.create_table(
+                        DatabaseName=database_name,
+                        TableInput={
+                            'Name': glue_table_name,
+                            'StorageDescriptor': {
+                                'Columns': columns,
+                                'Location': f"s3://{self.bucket_name}/{zone}/{table_name}/",
+                                'InputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat',
+                                'OutputFormat': 'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat',
+                                'SerdeInfo': {
+                                    'SerializationLibrary': 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
+                                }
+                            },
+                            'TableType': 'EXTERNAL_TABLE'
+                        }
+                    )
+            
+            self.logger.info(f"Data catalog created for database: {database_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create data catalog: {e}")
+            return False
+    
+    def query_data_lake(self, query: str, database: str, output_location: str):
+        """Query data lake using Amazon Athena"""
+        
+        try:
+            response = self.athena_client.start_query_execution(
+                QueryString=query,
+                QueryExecutionContext={'Database': database},
+                ResultConfiguration={'OutputLocation': output_location}
+            )
+            
+            query_execution_id = response['QueryExecutionId']
+            
+            # Wait for completion
+            import time
+            while True:
+                result = self.athena_client.get_query_execution(
+                    QueryExecutionId=query_execution_id
+                )
+                
+                status = result['QueryExecution']['Status']['State']
+                if status in ['SUCCEEDED', 'FAILED', 'CANCELLED']:
+                    break
+                time.sleep(2)
+            
+            if status == 'SUCCEEDED':
+                # Get results
+                results = self.athena_client.get_query_results(
+                    QueryExecutionId=query_execution_id
+                )
+                return results
+            else:
+                self.logger.error(f"Query failed with status: {status}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Query execution failed: {e}")
+            return None
+    
+    def implement_data_governance(self, governance_policies: Dict[str, Any]):
+        """Implement data governance policies"""
+        
+        governance_config = {
+            'data_classification': {
+                'public': {'encryption': False, 'access_level': 'read'},
+                'internal': {'encryption': True, 'access_level': 'read_write'},
+                'confidential': {'encryption': True, 'access_level': 'restricted'},
+                'restricted': {'encryption': True, 'access_level': 'admin_only'}
+            },
+            'retention_policies': {
+                'raw_zone': '7_years',
+                'processed_zone': '5_years',
+                'curated_zone': '3_years'
+            },
+            'access_controls': {
+                'data_engineers': ['raw', 'processed'],
+                'data_analysts': ['curated'],
+                'data_scientists': ['processed', 'curated'],
+                'business_users': ['curated']
+            }
+        }
+        
+        return governance_config
+    
+    def monitor_data_quality(self, table_name: str, quality_rules: List[Dict]):
+        """Monitor data quality in the data lake"""
+        
+        quality_checks = []
+        
+        for rule in quality_rules:
+            check_query = f"""
+            SELECT 
+                '{rule['name']}' as check_name,
+                COUNT(*) as total_records,
+                {rule['condition']} as quality_check,
+                CURRENT_TIMESTAMP as check_timestamp
+            FROM {table_name}
+            """
+            
+            quality_checks.append({
+                'rule_name': rule['name'],
+                'query': check_query,
+                'threshold': rule.get('threshold', 0.95)
+            })
+        
+        return quality_checks
+
+# Usage example
+aws_config = {
+    'region_name': 'us-west-2',
+    'aws_access_key_id': 'your_access_key',
+    'aws_secret_access_key': 'your_secret_key'
+}
+
+data_lake = S3DataLake('my-data-lake-bucket', aws_config)
+
+# Set up data lake
+data_lake.setup_data_lake_structure()
+
+# Ingest structured data
+sales_data = pd.DataFrame({
+    'customer_id': ['C001', 'C002', 'C003'],
+    'product_id': ['P001', 'P002', 'P001'],
+    'amount': [100.50, 250.75, 175.25],
+    'transaction_date': pd.to_datetime(['2024-01-01', '2024-01-02', '2024-01-03'])
+})
+
+data_lake.ingest_structured_data(
+    sales_data, 
+    'sales_transactions',
+    partition_columns=['transaction_date']
+)
+
+# Set up data catalog
+table_schemas = {
+    'sales_transactions': [
+        {'Name': 'customer_id', 'Type': 'string'},
+        {'Name': 'product_id', 'Type': 'string'},
+        {'Name': 'amount', 'Type': 'double'},
+        {'Name': 'transaction_date', 'Type': 'timestamp'}
+    ]
+}
+
+data_lake.setup_data_catalog('sales_analytics', table_schemas)
+
+# Query data lake
+query = """
+SELECT customer_id, SUM(amount) as total_spent
+FROM sales_transactions_raw_zone
+GROUP BY customer_id
+ORDER BY total_spent DESC
+"""
+
+results = data_lake.query_data_lake(
+    query, 
+    'sales_analytics', 
+    's3://my-athena-results/'
+)
+```
+
+## Delta Lake Implementation
+
+### Delta Lake with Apache Spark
+
+```python
+# Delta Lake implementation for ACID transactions
+from delta.tables import DeltaTable
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+import logging
+
+class DeltaLakeManager:
+    """Delta Lake implementation with ACID transactions"""
+    
+    def __init__(self, spark_config: Dict[str, str]):
+        self.spark = SparkSession.builder \
+            .appName("DeltaLakeManager") \
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+            .getOrCreate()
+        
+        for key, value in spark_config.items():
+            self.spark.conf.set(key, value)
+        
+        self.logger = logging.getLogger(__name__)
+    
+    def create_delta_table(self, table_name: str, schema: StructType, 
+                          location: str, partition_columns: List[str] = None):
+        """Create a new Delta table"""
+        
+        try:
+            # Create empty DataFrame with schema
+            empty_df = self.spark.createDataFrame([], schema)
+            
+            # Write as Delta table
+            writer = empty_df.write.format("delta")
+            
+            if partition_columns:
+                writer = writer.partitionBy(*partition_columns)
+            
+            writer.option("path", location).saveAsTable(table_name)
+            
+            self.logger.info(f"Delta table created: {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create Delta table: {e}")
+            return False
+    
+    def upsert_data(self, table_name: str, new_data_df, merge_condition: str, 
+                   update_columns: Dict[str, str], insert_columns: Dict[str, str]):
+        """Perform UPSERT operation using Delta Lake MERGE"""
+        
+        try:
+            delta_table = DeltaTable.forName(self.spark, table_name)
+            
+            # Perform merge operation
+            delta_table.alias("target") \
+                .merge(new_data_df.alias("source"), merge_condition) \
+                .whenMatchedUpdate(set=update_columns) \
+                .whenNotMatchedInsert(values=insert_columns) \
+                .execute()
+            
+            self.logger.info(f"UPSERT completed for table: {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"UPSERT failed: {e}")
+            return False
+    
+    def time_travel_query(self, table_name: str, version: int = None, 
+                         timestamp: str = None):
+        """Query historical versions of Delta table"""
+        
+        try:
+            if version is not None:
+                df = self.spark.read.format("delta") \
+                    .option("versionAsOf", version) \
+                    .table(table_name)
+            elif timestamp is not None:
+                df = self.spark.read.format("delta") \
+                    .option("timestampAsOf", timestamp) \
+                    .table(table_name)
+            else:
+                df = self.spark.read.format("delta").table(table_name)
+            
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Time travel query failed: {e}")
+            return None
+    
+    def optimize_table(self, table_name: str, z_order_columns: List[str] = None):
+        """Optimize Delta table with compaction and Z-ordering"""
+        
+        try:
+            # Basic optimization
+            self.spark.sql(f"OPTIMIZE {table_name}")
+            
+            # Z-order optimization if columns specified
+            if z_order_columns:
+                z_order_cols = ", ".join(z_order_columns)
+                self.spark.sql(f"OPTIMIZE {table_name} ZORDER BY ({z_order_cols})")
+            
+            self.logger.info(f"Table optimized: {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Table optimization failed: {e}")
+            return False
+    
+    def vacuum_table(self, table_name: str, retention_hours: int = 168):
+        """Clean up old files using VACUUM"""
+        
+        try:
+            self.spark.sql(f"VACUUM {table_name} RETAIN {retention_hours} HOURS")
+            self.logger.info(f"Table vacuumed: {table_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Table vacuum failed: {e}")
+            return False
+    
+    def create_streaming_delta_table(self, input_stream, table_name: str, 
+                                   checkpoint_location: str, trigger_interval: str = "10 seconds"):
+        """Create streaming Delta table"""
+        
+        try:
+            query = input_stream.writeStream \
+                .format("delta") \
+                .outputMode("append") \
+                .option("checkpointLocation", checkpoint_location) \
+                .trigger(processingTime=trigger_interval) \
+                .table(table_name)
+            
+            return query
+            
+        except Exception as e:
+            self.logger.error(f"Streaming table creation failed: {e}")
+            return None
+
+# Usage example
+spark_config = {
+    "spark.sql.adaptive.enabled": "true",
+    "spark.sql.adaptive.coalescePartitions.enabled": "true"
+}
+
+delta_manager = DeltaLakeManager(spark_config)
+
+# Define schema
+schema = StructType([
+    StructField("customer_id", StringType(), True),
+    StructField("product_id", StringType(), True),
+    StructField("amount", DoubleType(), True),
+    StructField("transaction_date", TimestampType(), True)
+])
+
+# Create Delta table
+delta_manager.create_delta_table(
+    "sales_delta",
+    schema,
+    "s3://my-bucket/delta-tables/sales/",
+    partition_columns=["transaction_date"]
+)
+
+# Sample data for upsert
+new_data = delta_manager.spark.createDataFrame([
+    ("C001", "P001", 150.00, "2024-01-01"),
+    ("C002", "P002", 300.00, "2024-01-02")
+], ["customer_id", "product_id", "amount", "transaction_date"])
+
+# Perform upsert
+delta_manager.upsert_data(
+    "sales_delta",
+    new_data,
+    "target.customer_id = source.customer_id AND target.product_id = source.product_id",
+    {"amount": "source.amount"},
+    {"customer_id": "source.customer_id", "product_id": "source.product_id", 
+     "amount": "source.amount", "transaction_date": "source.transaction_date"}
+)
+```
+
+## Data Lake Best Practices
+
+### Schema Evolution
+
+```python
+# Schema evolution patterns for data lakes
+class SchemaEvolutionManager:
+    def __init__(self, data_lake: S3DataLake):
+        self.data_lake = data_lake
+    
+    def handle_schema_changes(self, table_name: str, new_schema: Dict, 
+                            evolution_strategy: str = "backward_compatible"):
+        """Handle schema evolution in data lake"""
+        
+        strategies = {
+            "backward_compatible": self._backward_compatible_evolution,
+            "forward_compatible": self._forward_compatible_evolution,
+            "full_evolution": self._full_evolution
+        }
+        
+        return strategies[evolution_strategy](table_name, new_schema)
+    
+    def _backward_compatible_evolution(self, table_name: str, new_schema: Dict):
+        """Add new columns while maintaining compatibility"""
+        evolution_script = f"""
+        ALTER TABLE {table_name} 
+        ADD COLUMNS ({', '.join([f"{col} {dtype}" for col, dtype in new_schema.items()])})
+        """
+        return evolution_script
+    
+    def _forward_compatible_evolution(self, table_name: str, new_schema: Dict):
+        """Handle column removal with data preservation"""
+        preservation_script = f"""
+        CREATE TABLE {table_name}_v2 AS
+        SELECT {', '.join(new_schema.keys())}
+        FROM {table_name}
+        """
+        return preservation_script
+    
+    def _full_evolution(self, table_name: str, new_schema: Dict):
+        """Complete schema transformation"""
+        return {
+            "create_new_version": True,
+            "migrate_data": True,
+            "maintain_history": True
+        }
+```
+
+### Data Quality Framework
+
+```python
+# Data quality framework for data lakes
+class DataQualityFramework:
+    def __init__(self, data_lake: S3DataLake):
+        self.data_lake = data_lake
+        self.quality_rules = []
+    
+    def add_quality_rule(self, rule_name: str, condition: str, 
+                        threshold: float = 0.95):
+        """Add data quality rule"""
+        self.quality_rules.append({
+            'name': rule_name,
+            'condition': condition,
+            'threshold': threshold
+        })
+    
+    def run_quality_checks(self, table_name: str):
+        """Execute all quality checks"""
+        results = []
+        
+        for rule in self.quality_rules:
+            check_query = f"""
+            SELECT 
+                '{rule['name']}' as rule_name,
+                AVG(CASE WHEN {rule['condition']} THEN 1.0 ELSE 0.0 END) as pass_rate,
+                COUNT(*) as total_records,
+                CURRENT_TIMESTAMP as check_timestamp
+            FROM {table_name}
+            """
+            
+            result = self.data_lake.query_data_lake(
+                check_query, 
+                'quality_db', 
+                's3://quality-results/'
+            )
+            
+            results.append(result)
+        
+        return results
+    
+    def generate_quality_report(self, results: List[Dict]):
+        """Generate data quality report"""
+        report = {
+            'overall_score': sum(r['pass_rate'] for r in results) / len(results),
+            'failed_rules': [r for r in results if r['pass_rate'] < r['threshold']],
+            'recommendations': self._generate_recommendations(results)
+        }
+        
+        return report
+    
+    def _generate_recommendations(self, results: List[Dict]):
+        """Generate improvement recommendations"""
+        recommendations = []
+        
+        for result in results:
+            if result['pass_rate'] < result['threshold']:
+                recommendations.append(f"Improve {result['rule_name']} - current: {result['pass_rate']:.2%}")
+        
+        return recommendations
+
+# Usage
+quality_framework = DataQualityFramework(data_lake)
+
+# Add quality rules
+quality_framework.add_quality_rule(
+    "completeness_check", 
+    "customer_id IS NOT NULL AND product_id IS NOT NULL"
+)
+quality_framework.add_quality_rule(
+    "validity_check", 
+    "amount > 0 AND amount < 10000"
+)
+
+# Run checks
+quality_results = quality_framework.run_quality_checks("sales_transactions")
+quality_report = quality_framework.generate_quality_report(quality_results)
+```
+
+## Data Lake vs Data Warehouse
+
+| Aspect | Data Lake | Data Warehouse |
+|--------|-----------|----------------|
+| **Schema** | Schema-on-read | Schema-on-write |
+| **Data Types** | Structured, semi-structured, unstructured | Primarily structured |
+| **Storage Cost** | Low cost | Higher cost |
+| **Query Performance** | Variable | Optimized |
+| **Data Processing** | ELT (Extract, Load, Transform) | ETL (Extract, Transform, Load) |
+| **Flexibility** | High flexibility | Structured approach |
+| **Use Cases** | Big data analytics, ML, exploration | Business intelligence, reporting |
+
+## Best Practices
+
+### Data Organization
+- **Zone-based architecture** - Separate raw, processed, and curated data
+- **Partitioning strategy** - Partition by date, region, or business dimension
+- **File formats** - Use columnar formats (Parquet, ORC) for analytics
+- **Compression** - Apply appropriate compression (Snappy, GZIP)
+
+### Data Governance
+- **Data cataloging** - Maintain comprehensive metadata catalog
+- **Access controls** - Implement fine-grained access policies
+- **Data lineage** - Track data flow and transformations
+- **Quality monitoring** - Continuous data quality assessment
+
+### Performance Optimization
+- **File sizing** - Optimize file sizes (128MB-1GB per file)
+- **Compaction** - Regular compaction of small files
+- **Indexing** - Use appropriate indexing strategies
+- **Caching** - Implement intelligent caching layers
+
+### Security
+- **Encryption** - Encrypt data at rest and in transit
+- **Access logging** - Comprehensive access audit trails
+- **Data masking** - Mask sensitive data in non-production environments
+- **Compliance** - Ensure regulatory compliance (GDPR, HIPAA)
+
+## Summary
+
+Data lakes provide a flexible, cost-effective solution for storing and processing large volumes of diverse data. Key considerations include:
+
+- **Architecture design** - Multi-zone approach with clear data flow
+- **Technology selection** - Choose appropriate storage and processing technologies
+- **Governance implementation** - Establish strong data governance practices
+- **Quality assurance** - Implement comprehensive quality monitoring
+- **Performance optimization** - Regular optimization and maintenance
+
+---
+
+**Next**: Learn about [Object Storage](/chapters/data-storage/object-storage) for scalable file storage solutions.

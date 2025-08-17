@@ -1,0 +1,374 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Engineering vs Data Science
+
+While data engineering and data science are closely related fields that work with data, they serve different purposes and require distinct skill sets. Understanding these differences is crucial for anyone considering a career in data or building a data team.
+
+## Key Differences Overview
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Engineering"
+        A[Data Sources] --> B[ETL Pipelines]
+        B --> C[Data Storage]
+        C --> D[Data Quality]
+        D --> E[Infrastructure]
+    end
+    
+    subgraph "Data Science"
+        F[Clean Data] --> G[Exploratory Analysis]
+        G --> H[Feature Engineering]
+        H --> I[Model Building]
+        I --> J[Model Deployment]
+    end
+    
+    E --> F
+    
+    style A fill:#e3f2fd
+    style E fill:#e3f2fd
+    style F fill:#f3e5f5
+    style J fill:#f3e5f5
+`} />
+
+## Role Comparison
+
+### Data Engineer Focus
+
+**Primary Goal**: Build and maintain data infrastructure
+
+```python
+# Data Engineer: Building ETL Pipeline
+import pandas as pd
+from sqlalchemy import create_engine
+import logging
+
+class DataPipeline:
+    def __init__(self, source_conn, target_conn):
+        self.source = create_engine(source_conn)
+        self.target = create_engine(target_conn)
+        self.logger = logging.getLogger(__name__)
+    
+    def extract_data(self, query):
+        """Extract data from source system"""
+        try:
+            return pd.read_sql(query, self.source)
+        except Exception as e:
+            self.logger.error(f"Extraction failed: {e}")
+            raise
+    
+    def transform_data(self, df):
+        """Apply business rules and data cleaning"""
+        # Remove duplicates
+        df = df.drop_duplicates()
+        
+        # Handle missing values
+        df['revenue'] = df['revenue'].fillna(0)
+        
+        # Add calculated fields
+        df['profit_margin'] = (df['revenue'] - df['cost']) / df['revenue']
+        
+        return df
+    
+    def load_data(self, df, table_name):
+        """Load data to target system"""
+        df.to_sql(table_name, self.target, if_exists='replace', index=False)
+        self.logger.info(f"Loaded {len(df)} records to {table_name}")
+
+# Usage
+pipeline = DataPipeline(
+    source_conn="postgresql://source_db",
+    target_conn="postgresql://warehouse"
+)
+
+data = pipeline.extract_data("SELECT * FROM sales WHERE date >= '2024-01-01'")
+clean_data = pipeline.transform_data(data)
+pipeline.load_data(clean_data, "sales_clean")
+```
+
+### Data Scientist Focus
+
+**Primary Goal**: Extract insights and build predictive models
+
+```python
+# Data Scientist: Building ML Model
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+class CustomerChurnModel:
+    def __init__(self):
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.feature_importance = None
+    
+    def explore_data(self, df):
+        """Exploratory data analysis"""
+        print("Dataset shape:", df.shape)
+        print("\nMissing values:")
+        print(df.isnull().sum())
+        
+        # Visualize churn distribution
+        plt.figure(figsize=(8, 6))
+        sns.countplot(data=df, x='churn')
+        plt.title('Customer Churn Distribution')
+        plt.show()
+        
+        # Correlation analysis
+        correlation_matrix = df.corr()
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
+        plt.title('Feature Correlation Matrix')
+        plt.show()
+    
+    def feature_engineering(self, df):
+        """Create new features for model"""
+        # Calculate customer lifetime value
+        df['clv'] = df['monthly_charges'] * df['tenure']
+        
+        # Create engagement score
+        df['engagement_score'] = (
+            df['total_day_minutes'] + 
+            df['total_eve_minutes'] + 
+            df['total_night_minutes']
+        ) / 3
+        
+        # Encode categorical variables
+        df = pd.get_dummies(df, columns=['state', 'phone_plan'])
+        
+        return df
+    
+    def train_model(self, X, y):
+        """Train the churn prediction model"""
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
+        
+        self.model.fit(X_train, y_train)
+        
+        # Evaluate model
+        y_pred = self.model.predict(X_test)
+        print("Model Performance:")
+        print(classification_report(y_test, y_pred))
+        
+        # Feature importance
+        self.feature_importance = pd.DataFrame({
+            'feature': X.columns,
+            'importance': self.model.feature_importances_
+        }).sort_values('importance', ascending=False)
+        
+        return X_test, y_test, y_pred
+    
+    def predict_churn(self, customer_data):
+        """Predict churn probability for new customers"""
+        return self.model.predict_proba(customer_data)[:, 1]
+
+# Usage
+model = CustomerChurnModel()
+data = pd.read_csv('customer_data.csv')
+model.explore_data(data)
+processed_data = model.feature_engineering(data)
+
+X = processed_data.drop(['customer_id', 'churn'], axis=1)
+y = processed_data['churn']
+model.train_model(X, y)
+```
+
+## Skill Set Comparison
+
+### Data Engineering Skills
+
+#### Technical Skills
+- **Programming**: Python, Scala, Java, SQL
+- **Big Data**: Spark, Hadoop, Kafka
+- **Cloud Platforms**: AWS, GCP, Azure
+- **Databases**: PostgreSQL, MongoDB, Cassandra
+- **Orchestration**: Airflow, Prefect, Luigi
+
+#### System Design
+```python
+# Example: Designing a scalable data architecture
+class DataArchitecture:
+    def __init__(self):
+        self.components = {
+            'ingestion': ['Kafka', 'Kinesis', 'Pub/Sub'],
+            'processing': ['Spark', 'Flink', 'Dataflow'],
+            'storage': ['S3', 'BigQuery', 'Snowflake'],
+            'orchestration': ['Airflow', 'Prefect'],
+            'monitoring': ['Datadog', 'Prometheus']
+        }
+    
+    def design_pipeline(self, requirements):
+        """Design data pipeline based on requirements"""
+        pipeline = {
+            'volume': self.select_processing_engine(requirements['data_volume']),
+            'latency': self.select_streaming_tool(requirements['latency_req']),
+            'storage': self.select_storage_solution(requirements['query_patterns'])
+        }
+        return pipeline
+```
+
+### Data Science Skills
+
+#### Technical Skills
+- **Programming**: Python, R, SQL
+- **Statistics**: Hypothesis testing, regression analysis
+- **Machine Learning**: Scikit-learn, TensorFlow, PyTorch
+- **Visualization**: Matplotlib, Seaborn, Plotly
+- **Experimentation**: A/B testing, causal inference
+
+#### Model Development
+```python
+# Example: A/B Test Analysis
+import scipy.stats as stats
+from statsmodels.stats.power import ttest_power
+
+class ABTestAnalyzer:
+    def __init__(self):
+        self.alpha = 0.05  # Significance level
+        self.power = 0.8   # Statistical power
+    
+    def calculate_sample_size(self, effect_size, baseline_rate):
+        """Calculate required sample size for A/B test"""
+        return ttest_power(
+            effect_size=effect_size,
+            alpha=self.alpha,
+            power=self.power
+        )
+    
+    def analyze_results(self, control_group, treatment_group):
+        """Analyze A/B test results"""
+        # Perform t-test
+        t_stat, p_value = stats.ttest_ind(control_group, treatment_group)
+        
+        # Calculate effect size (Cohen's d)
+        pooled_std = np.sqrt(
+            ((len(control_group) - 1) * np.var(control_group) + 
+             (len(treatment_group) - 1) * np.var(treatment_group)) /
+            (len(control_group) + len(treatment_group) - 2)
+        )
+        effect_size = (np.mean(treatment_group) - np.mean(control_group)) / pooled_std
+        
+        return {
+            'p_value': p_value,
+            'effect_size': effect_size,
+            'significant': p_value < self.alpha,
+            'control_mean': np.mean(control_group),
+            'treatment_mean': np.mean(treatment_group)
+        }
+```
+
+## Career Paths and Progression
+
+### Data Engineering Career Path
+
+<MermaidDiagram chart={`
+graph TD
+    A[Junior Data Engineer] --> B[Data Engineer]
+    B --> C[Senior Data Engineer]
+    C --> D[Staff Data Engineer]
+    C --> E[Data Engineering Manager]
+    D --> F[Principal Data Engineer]
+    E --> G[Director of Data Engineering]
+    
+    A --> H[Skills: SQL, Python, ETL]
+    B --> I[Skills: Cloud, Spark, Kafka]
+    C --> J[Skills: Architecture, Mentoring]
+    D --> K[Skills: System Design, Strategy]
+    
+    style A fill:#e3f2fd
+    style D fill:#c8e6c9
+    style G fill:#fff3e0
+`} />
+
+### Data Science Career Path
+
+<MermaidDiagram chart={`
+graph TD
+    A[Junior Data Scientist] --> B[Data Scientist]
+    B --> C[Senior Data Scientist]
+    C --> D[Staff Data Scientist]
+    C --> E[Data Science Manager]
+    D --> F[Principal Data Scientist]
+    E --> G[Director of Data Science]
+    
+    A --> H[Skills: Statistics, Python, ML]
+    B --> I[Skills: Deep Learning, Experimentation]
+    C --> J[Skills: MLOps, Business Strategy]
+    D --> K[Skills: Research, Innovation]
+    
+    style A fill:#f3e5f5
+    style D fill:#c8e6c9
+    style G fill:#fff3e0
+`} />
+
+## Collaboration Between Roles
+
+### Typical Workflow
+
+1. **Data Engineers** build pipelines to collect and clean data
+2. **Data Scientists** use clean data for analysis and modeling
+3. **Data Engineers** help deploy models into production
+4. **Both** collaborate on monitoring and maintenance
+
+```python
+# Example: ML Pipeline Collaboration
+class MLPipeline:
+    def __init__(self, data_engineer, data_scientist):
+        self.de = data_engineer
+        self.ds = data_scientist
+    
+    def run_pipeline(self):
+        # Data Engineer: Prepare data
+        raw_data = self.de.extract_data()
+        clean_data = self.de.transform_data(raw_data)
+        
+        # Data Scientist: Build model
+        model = self.ds.train_model(clean_data)
+        
+        # Data Engineer: Deploy model
+        self.de.deploy_model(model)
+        
+        # Both: Monitor performance
+        self.monitor_pipeline()
+```
+
+## Choosing Your Path
+
+### Choose Data Engineering if you:
+- Enjoy building systems and infrastructure
+- Like solving scalability and performance challenges
+- Prefer working with distributed systems
+- Want to focus on data architecture and pipelines
+
+### Choose Data Science if you:
+- Enjoy statistical analysis and modeling
+- Like discovering insights from data
+- Want to work on prediction and optimization problems
+- Prefer research and experimentation
+
+## Hybrid Roles
+
+### Analytics Engineer
+Combines aspects of both roles:
+- Builds data models for analytics
+- Creates business logic transformations
+- Works with dbt and modern data stack
+
+### ML Engineer
+Focuses on productionizing ML models:
+- Deploys models to production
+- Builds ML infrastructure
+- Monitors model performance
+
+## Summary
+
+Both data engineering and data science are essential for modern data-driven organizations. Data engineers build the foundation that enables data scientists to extract insights and build models. While the roles have different focuses, successful data teams require close collaboration between both disciplines.
+
+The choice between data engineering and data science often comes down to personal interests: do you prefer building systems (data engineering) or discovering insights (data science)? Many professionals also transition between roles or develop hybrid skill sets as their careers progress.
+
+---
+
+**Next**: Learn about [The Data Engineering Lifecycle](/chapters/introduction/data-engineering-lifecycle) to understand the end-to-end process of data engineering projects.

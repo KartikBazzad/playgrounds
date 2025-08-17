@@ -1,0 +1,830 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Infrastructure as Code
+
+Infrastructure as Code (IaC) enables the management and provisioning of infrastructure through machine-readable definition files, rather than physical hardware configuration or interactive configuration tools. For data engineering, IaC ensures consistent, reproducible, and scalable infrastructure deployments.
+
+## Infrastructure as Code Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "IaC Development"
+        ID1[Infrastructure Templates]
+        ID2[Configuration Files]
+        ID3[Parameter Files]
+        ID4[Module Libraries]
+    end
+    
+    subgraph "Version Control"
+        VC1[Git Repository]
+        VC2[Branch Management]
+        VC3[Code Reviews]
+        VC4[Change Tracking]
+    end
+    
+    subgraph "Validation & Testing"
+        VT1[Syntax Validation]
+        VT2[Security Scanning]
+        VT3[Cost Analysis]
+        VT4[Compliance Checks]
+    end
+    
+    subgraph "Deployment Pipeline"
+        DP1[Plan Generation]
+        DP2[Approval Process]
+        DP3[Infrastructure Apply]
+        DP4[State Management]
+    end
+    
+    subgraph "Monitoring & Management"
+        MM1[Resource Monitoring]
+        MM2[Drift Detection]
+        MM3[Cost Tracking]
+        MM4[Compliance Reporting]
+    end
+    
+    ID1 --> VC1
+    ID2 --> VC2
+    ID3 --> VC3
+    ID4 --> VC4
+    
+    VC1 --> VT1
+    VC2 --> VT2
+    VC3 --> VT3
+    VC4 --> VT4
+    
+    VT1 --> DP1
+    VT2 --> DP2
+    VT3 --> DP3
+    VT4 --> DP4
+    
+    DP1 --> MM1
+    DP2 --> MM2
+    DP3 --> MM3
+    DP4 --> MM4
+    
+    style ID1 fill:#e3f2fd
+    style VC1 fill:#e8f5e8
+    style VT1 fill:#fff3e0
+    style DP1 fill:#f3e5f5
+    style MM1 fill:#fce4ec
+`} />
+
+## Comprehensive IaC Framework
+
+### Terraform-based Infrastructure Management
+
+```python
+# Infrastructure as Code Management Framework
+import os
+import json
+import yaml
+import subprocess
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+import boto3
+import hashlib
+from abc import ABC, abstractmethod
+
+class InfrastructureProvider(Enum):
+    """Infrastructure provider types"""
+    AWS = "aws"
+    AZURE = "azure"
+    GCP = "gcp"
+    KUBERNETES = "kubernetes"
+
+class DeploymentStatus(Enum):
+    """Deployment status"""
+    PENDING = "pending"
+    PLANNING = "planning"
+    APPLYING = "applying"
+    SUCCESS = "success"
+    FAILED = "failed"
+    DESTROYED = "destroyed"
+
+class ResourceType(Enum):
+    """Infrastructure resource types"""
+    COMPUTE = "compute"
+    STORAGE = "storage"
+    NETWORK = "network"
+    DATABASE = "database"
+    SECURITY = "security"
+    MONITORING = "monitoring"
+
+@dataclass
+class InfrastructureTemplate:
+    """Infrastructure template definition"""
+    template_name: str
+    provider: InfrastructureProvider
+    template_path: str
+    variables: Dict[str, Any]
+    outputs: List[str]
+    dependencies: List[str] = field(default_factory=list)
+    tags: Dict[str, str] = field(default_factory=dict)
+    
+    def get_template_hash(self) -> str:
+        """Generate hash of template for change detection"""
+        template_content = ""
+        if os.path.exists(self.template_path):
+            with open(self.template_path, 'r') as f:
+                template_content = f.read()
+        
+        content_to_hash = f"{template_content}{json.dumps(self.variables, sort_keys=True)}"
+        return hashlib.sha256(content_to_hash.encode()).hexdigest()
+
+@dataclass
+class InfrastructureDeployment:
+    """Infrastructure deployment record"""
+    deployment_id: str
+    template_name: str
+    environment: str
+    status: DeploymentStatus
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
+    plan_output: str = ""
+    apply_output: str = ""
+    resources_created: List[Dict[str, Any]] = field(default_factory=list)
+    resources_modified: List[Dict[str, Any]] = field(default_factory=list)
+    resources_destroyed: List[Dict[str, Any]] = field(default_factory=list)
+    cost_estimate: Optional[float] = None
+    template_hash: str = ""
+    
+    def complete(self, status: DeploymentStatus):
+        """Mark deployment as complete"""
+        self.completed_at = datetime.now()
+        self.status = status
+        if self.started_at:
+            self.duration_seconds = (self.completed_at - self.started_at).total_seconds()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'deployment_id': self.deployment_id,
+            'template_name': self.template_name,
+            'environment': self.environment,
+            'status': self.status.value,
+            'started_at': self.started_at.isoformat(),
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'duration_seconds': self.duration_seconds,
+            'resources_created': len(self.resources_created),
+            'resources_modified': len(self.resources_modified),
+            'resources_destroyed': len(self.resources_destroyed),
+            'cost_estimate': self.cost_estimate,
+            'template_hash': self.template_hash
+        }
+
+class TerraformManager:
+    """Terraform infrastructure management"""
+    
+    def __init__(self, working_directory: str):
+        self.working_directory = Path(working_directory)
+        self.logger = logging.getLogger(__name__)
+        
+        # Ensure working directory exists
+        self.working_directory.mkdir(parents=True, exist_ok=True)
+    
+    def init(self, template_path: str) -> bool:
+        """Initialize Terraform in template directory"""
+        try:
+            template_dir = Path(template_path).parent
+            
+            result = subprocess.run(
+                ['terraform', 'init'],
+                cwd=template_dir,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode != 0:
+                self.logger.error(f"Terraform init failed: {result.stderr}")
+                return False
+            
+            self.logger.info("Terraform initialized successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Terraform init error: {e}")
+            return False
+    
+    def plan(self, template: InfrastructureTemplate, environment: str) -> Tuple[bool, str]:
+        """Generate Terraform plan"""
+        try:
+            template_dir = Path(template.template_path).parent
+            
+            # Create variables file
+            var_file_path = template_dir / f"{environment}.tfvars"
+            with open(var_file_path, 'w') as f:
+                for key, value in template.variables.items():
+                    if isinstance(value, str):
+                        f.write(f'{key} = "{value}"\n')
+                    else:
+                        f.write(f'{key} = {json.dumps(value)}\n')
+            
+            # Generate plan
+            plan_file = template_dir / f"{environment}.tfplan"
+            
+            cmd = [
+                'terraform', 'plan',
+                f'-var-file={var_file_path}',
+                f'-out={plan_file}',
+                '-detailed-exitcode'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                cwd=template_dir,
+                capture_output=True,
+                text=True,
+                timeout=600
+            )
+            
+            # Terraform plan exit codes: 0 = no changes, 1 = error, 2 = changes
+            if result.returncode == 0:
+                self.logger.info("Terraform plan: No changes required")
+                return True, result.stdout
+            elif result.returncode == 2:
+                self.logger.info("Terraform plan: Changes detected")
+                return True, result.stdout
+            else:
+                self.logger.error(f"Terraform plan failed: {result.stderr}")
+                return False, result.stderr
+            
+        except Exception as e:
+            self.logger.error(f"Terraform plan error: {e}")
+            return False, str(e)
+    
+    def apply(self, template: InfrastructureTemplate, environment: str) -> Tuple[bool, str]:
+        """Apply Terraform plan"""
+        try:
+            template_dir = Path(template.template_path).parent
+            plan_file = template_dir / f"{environment}.tfplan"
+            
+            if not plan_file.exists():
+                return False, "Plan file not found. Run plan first."
+            
+            result = subprocess.run(
+                ['terraform', 'apply', str(plan_file)],
+                cwd=template_dir,
+                capture_output=True,
+                text=True,
+                timeout=1800  # 30 minutes
+            )
+            
+            if result.returncode != 0:
+                self.logger.error(f"Terraform apply failed: {result.stderr}")
+                return False, result.stderr
+            
+            self.logger.info("Terraform apply completed successfully")
+            return True, result.stdout
+            
+        except Exception as e:
+            self.logger.error(f"Terraform apply error: {e}")
+            return False, str(e)
+    
+    def destroy(self, template: InfrastructureTemplate, environment: str) -> Tuple[bool, str]:
+        """Destroy Terraform-managed infrastructure"""
+        try:
+            template_dir = Path(template.template_path).parent
+            
+            # Create variables file
+            var_file_path = template_dir / f"{environment}.tfvars"
+            
+            result = subprocess.run(
+                ['terraform', 'destroy', f'-var-file={var_file_path}', '-auto-approve'],
+                cwd=template_dir,
+                capture_output=True,
+                text=True,
+                timeout=1800
+            )
+            
+            if result.returncode != 0:
+                self.logger.error(f"Terraform destroy failed: {result.stderr}")
+                return False, result.stderr
+            
+            self.logger.info("Terraform destroy completed successfully")
+            return True, result.stdout
+            
+        except Exception as e:
+            self.logger.error(f"Terraform destroy error: {e}")
+            return False, str(e)
+    
+    def get_outputs(self, template_path: str) -> Dict[str, Any]:
+        """Get Terraform outputs"""
+        try:
+            template_dir = Path(template_path).parent
+            
+            result = subprocess.run(
+                ['terraform', 'output', '-json'],
+                cwd=template_dir,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                self.logger.error(f"Terraform output failed: {result.stderr}")
+                return {}
+            
+            outputs = json.loads(result.stdout)
+            
+            # Extract values from Terraform output format
+            return {key: value.get('value') for key, value in outputs.items()}
+            
+        except Exception as e:
+            self.logger.error(f"Terraform output error: {e}")
+            return {}
+
+class InfrastructureOrchestrator:
+    """Main infrastructure orchestration system"""
+    
+    def __init__(self, working_directory: str):
+        self.working_directory = working_directory
+        self.terraform_manager = TerraformManager(working_directory)
+        self.templates: Dict[str, InfrastructureTemplate] = {}
+        self.deployments: Dict[str, InfrastructureDeployment] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def register_template(self, template: InfrastructureTemplate):
+        """Register infrastructure template"""
+        self.templates[template.template_name] = template
+        self.logger.info(f"Registered template: {template.template_name}")
+    
+    def deploy_infrastructure(self, template_name: str, environment: str,
+                            auto_approve: bool = False) -> str:
+        """Deploy infrastructure using template"""
+        
+        if template_name not in self.templates:
+            raise ValueError(f"Template not found: {template_name}")
+        
+        template = self.templates[template_name]
+        
+        # Create deployment record
+        deployment_id = f"{template_name}_{environment}_{int(datetime.now().timestamp())}"
+        
+        deployment = InfrastructureDeployment(
+            deployment_id=deployment_id,
+            template_name=template_name,
+            environment=environment,
+            status=DeploymentStatus.PENDING,
+            started_at=datetime.now(),
+            template_hash=template.get_template_hash()
+        )
+        
+        self.deployments[deployment_id] = deployment
+        
+        try:
+            # Initialize Terraform
+            deployment.status = DeploymentStatus.PLANNING
+            self.logger.info(f"Initializing Terraform for deployment: {deployment_id}")
+            
+            if not self.terraform_manager.init(template.template_path):
+                raise Exception("Terraform initialization failed")
+            
+            # Generate plan
+            self.logger.info(f"Generating plan for deployment: {deployment_id}")
+            plan_success, plan_output = self.terraform_manager.plan(template, environment)
+            deployment.plan_output = plan_output
+            
+            if not plan_success:
+                raise Exception(f"Terraform plan failed: {plan_output}")
+            
+            # Parse plan output for resource changes
+            self._parse_plan_output(deployment, plan_output)
+            
+            # Apply changes if auto-approved or no approval needed
+            if auto_approve or self._should_auto_apply(deployment):
+                deployment.status = DeploymentStatus.APPLYING
+                self.logger.info(f"Applying infrastructure changes: {deployment_id}")
+                
+                apply_success, apply_output = self.terraform_manager.apply(template, environment)
+                deployment.apply_output = apply_output
+                
+                if not apply_success:
+                    raise Exception(f"Terraform apply failed: {apply_output}")
+                
+                # Get outputs
+                outputs = self.terraform_manager.get_outputs(template.template_path)
+                deployment.resources_created.extend([
+                    {'type': 'output', 'name': key, 'value': value}
+                    for key, value in outputs.items()
+                ])
+                
+                deployment.complete(DeploymentStatus.SUCCESS)
+                self.logger.info(f"Infrastructure deployment completed: {deployment_id}")
+            else:
+                self.logger.info(f"Infrastructure deployment requires approval: {deployment_id}")
+            
+        except Exception as e:
+            deployment.complete(DeploymentStatus.FAILED)
+            self.logger.error(f"Infrastructure deployment failed: {deployment_id} - {e}")
+        
+        return deployment_id
+    
+    def _parse_plan_output(self, deployment: InfrastructureDeployment, plan_output: str):
+        """Parse Terraform plan output for resource changes"""
+        lines = plan_output.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            
+            if line.startswith('+ '):  # Resource to be created
+                resource_info = {'action': 'create', 'resource': line[2:]}
+                deployment.resources_created.append(resource_info)
+            elif line.startswith('~ '):  # Resource to be modified
+                resource_info = {'action': 'modify', 'resource': line[2:]}
+                deployment.resources_modified.append(resource_info)
+            elif line.startswith('- '):  # Resource to be destroyed
+                resource_info = {'action': 'destroy', 'resource': line[2:]}
+                deployment.resources_destroyed.append(resource_info)
+    
+    def _should_auto_apply(self, deployment: InfrastructureDeployment) -> bool:
+        """Determine if deployment should be auto-applied"""
+        # Auto-apply if only creating resources and no destruction
+        return (
+            len(deployment.resources_created) > 0 and
+            len(deployment.resources_destroyed) == 0 and
+            len(deployment.resources_modified) <= 2  # Allow minor modifications
+        )
+    
+    def destroy_infrastructure(self, template_name: str, environment: str) -> str:
+        """Destroy infrastructure"""
+        
+        if template_name not in self.templates:
+            raise ValueError(f"Template not found: {template_name}")
+        
+        template = self.templates[template_name]
+        
+        # Create deployment record for destruction
+        deployment_id = f"{template_name}_{environment}_destroy_{int(datetime.now().timestamp())}"
+        
+        deployment = InfrastructureDeployment(
+            deployment_id=deployment_id,
+            template_name=template_name,
+            environment=environment,
+            status=DeploymentStatus.PENDING,
+            started_at=datetime.now()
+        )
+        
+        self.deployments[deployment_id] = deployment
+        
+        try:
+            self.logger.info(f"Destroying infrastructure: {deployment_id}")
+            
+            destroy_success, destroy_output = self.terraform_manager.destroy(template, environment)
+            deployment.apply_output = destroy_output
+            
+            if not destroy_success:
+                raise Exception(f"Terraform destroy failed: {destroy_output}")
+            
+            deployment.complete(DeploymentStatus.DESTROYED)
+            self.logger.info(f"Infrastructure destruction completed: {deployment_id}")
+            
+        except Exception as e:
+            deployment.complete(DeploymentStatus.FAILED)
+            self.logger.error(f"Infrastructure destruction failed: {deployment_id} - {e}")
+        
+        return deployment_id
+    
+    def get_deployment_status(self, deployment_id: str) -> Optional[Dict[str, Any]]:
+        """Get deployment status"""
+        deployment = self.deployments.get(deployment_id)
+        return deployment.to_dict() if deployment else None
+    
+    def get_environment_resources(self, environment: str) -> Dict[str, Any]:
+        """Get resources deployed in environment"""
+        env_deployments = [
+            d for d in self.deployments.values()
+            if d.environment == environment and d.status == DeploymentStatus.SUCCESS
+        ]
+        
+        total_resources = sum(
+            len(d.resources_created) for d in env_deployments
+        )
+        
+        templates_deployed = list(set(d.template_name for d in env_deployments))
+        
+        return {
+            'environment': environment,
+            'total_deployments': len(env_deployments),
+            'total_resources': total_resources,
+            'templates_deployed': templates_deployed,
+            'last_deployment': max(env_deployments, key=lambda x: x.started_at).to_dict() if env_deployments else None
+        }
+    
+    def detect_drift(self, template_name: str, environment: str) -> Dict[str, Any]:
+        """Detect infrastructure drift"""
+        if template_name not in self.templates:
+            raise ValueError(f"Template not found: {template_name}")
+        
+        template = self.templates[template_name]
+        
+        try:
+            # Generate current plan to detect drift
+            plan_success, plan_output = self.terraform_manager.plan(template, environment)
+            
+            if not plan_success:
+                return {
+                    'drift_detected': False,
+                    'error': plan_output
+                }
+            
+            # Check if plan shows any changes
+            drift_detected = 'No changes' not in plan_output
+            
+            return {
+                'template_name': template_name,
+                'environment': environment,
+                'drift_detected': drift_detected,
+                'plan_output': plan_output,
+                'checked_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            return {
+                'drift_detected': False,
+                'error': str(e)
+            }
+
+# Example Terraform templates
+def create_example_terraform_templates():
+    """Create example Terraform templates"""
+    
+    # Data lake infrastructure template
+    data_lake_template = InfrastructureTemplate(
+        template_name='data_lake',
+        provider=InfrastructureProvider.AWS,
+        template_path='/templates/data_lake/main.tf',
+        variables={
+            'environment': 'dev',
+            'bucket_name': 'my-data-lake',
+            'region': 'us-west-2',
+            'enable_versioning': True,
+            'enable_encryption': True
+        },
+        outputs=['bucket_name', 'bucket_arn', 'kms_key_id'],
+        tags={'project': 'data-engineering', 'team': 'data-platform'}
+    )
+    
+    # Data processing infrastructure template
+    data_processing_template = InfrastructureTemplate(
+        template_name='data_processing',
+        provider=InfrastructureProvider.AWS,
+        template_path='/templates/data_processing/main.tf',
+        variables={
+            'environment': 'dev',
+            'cluster_name': 'data-processing-cluster',
+            'instance_type': 't3.medium',
+            'min_size': 1,
+            'max_size': 10,
+            'desired_capacity': 2
+        },
+        outputs=['cluster_name', 'cluster_endpoint', 'security_group_id'],
+        dependencies=['data_lake'],
+        tags={'project': 'data-engineering', 'team': 'data-platform'}
+    )
+    
+    return [data_lake_template, data_processing_template]
+
+# Example usage
+def example_infrastructure_orchestration():
+    """Example of infrastructure orchestration"""
+    
+    # Initialize orchestrator
+    orchestrator = InfrastructureOrchestrator('/tmp/terraform_workspace')
+    
+    # Register templates
+    templates = create_example_terraform_templates()
+    for template in templates:
+        orchestrator.register_template(template)
+    
+    print("=== INFRASTRUCTURE AS CODE SIMULATION ===")
+    
+    # Deploy infrastructure
+    deployments = []
+    
+    # Deploy data lake
+    data_lake_deployment = orchestrator.deploy_infrastructure(
+        template_name='data_lake',
+        environment='development',
+        auto_approve=True
+    )
+    deployments.append(data_lake_deployment)
+    
+    # Deploy data processing
+    data_processing_deployment = orchestrator.deploy_infrastructure(
+        template_name='data_processing',
+        environment='development',
+        auto_approve=True
+    )
+    deployments.append(data_processing_deployment)
+    
+    print(f"\nDeployed {len(deployments)} infrastructure templates")
+    
+    # Check deployment status
+    for deployment_id in deployments:
+        status = orchestrator.get_deployment_status(deployment_id)
+        if status:
+            print(f"\nDeployment: {deployment_id}")
+            print(f"  Template: {status['template_name']}")
+            print(f"  Status: {status['status']}")
+            print(f"  Resources created: {status['resources_created']}")
+            print(f"  Duration: {status['duration_seconds']:.1f}s" if status['duration_seconds'] else "  Duration: N/A")
+    
+    # Check environment resources
+    env_resources = orchestrator.get_environment_resources('development')
+    print(f"\n=== DEVELOPMENT ENVIRONMENT ===")
+    print(f"Total deployments: {env_resources['total_deployments']}")
+    print(f"Total resources: {env_resources['total_resources']}")
+    print(f"Templates deployed: {', '.join(env_resources['templates_deployed'])}")
+    
+    # Check for drift
+    for template_name in ['data_lake', 'data_processing']:
+        drift_result = orchestrator.detect_drift(template_name, 'development')
+        print(f"\nDrift check for {template_name}: {'DETECTED' if drift_result['drift_detected'] else 'NONE'}")
+    
+    return orchestrator
+
+# orchestrator = example_infrastructure_orchestration()
+```
+
+## Terraform Template Examples
+
+### Data Lake Infrastructure
+
+```hcl
+# Example Terraform template for data lake infrastructure
+# File: templates/data_lake/main.tf
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.region
+}
+
+# Variables
+variable "environment" {
+  description = "Environment name"
+  type        = string
+}
+
+variable "bucket_name" {
+  description = "S3 bucket name for data lake"
+  type        = string
+}
+
+variable "region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "enable_versioning" {
+  description = "Enable S3 versioning"
+  type        = bool
+  default     = true
+}
+
+variable "enable_encryption" {
+  description = "Enable S3 encryption"
+  type        = bool
+  default     = true
+}
+
+# KMS Key for encryption
+resource "aws_kms_key" "data_lake_key" {
+  count = var.enable_encryption ? 1 : 0
+  
+  description             = "KMS key for data lake encryption"
+  deletion_window_in_days = 7
+  
+  tags = {
+    Name        = "${var.environment}-data-lake-key"
+    Environment = var.environment
+  }
+}
+
+resource "aws_kms_alias" "data_lake_key_alias" {
+  count = var.enable_encryption ? 1 : 0
+  
+  name          = "alias/${var.environment}-data-lake"
+  target_key_id = aws_kms_key.data_lake_key[0].key_id
+}
+
+# S3 Bucket for data lake
+resource "aws_s3_bucket" "data_lake" {
+  bucket = "${var.bucket_name}-${var.environment}"
+  
+  tags = {
+    Name        = "${var.environment}-data-lake"
+    Environment = var.environment
+    Purpose     = "data-lake"
+  }
+}
+
+# S3 Bucket versioning
+resource "aws_s3_bucket_versioning" "data_lake_versioning" {
+  bucket = aws_s3_bucket.data_lake.id
+  versioning_configuration {
+    status = var.enable_versioning ? "Enabled" : "Disabled"
+  }
+}
+
+# S3 Bucket encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "data_lake_encryption" {
+  count = var.enable_encryption ? 1 : 0
+  
+  bucket = aws_s3_bucket.data_lake.id
+  
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = aws_kms_key.data_lake_key[0].arn
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+# S3 Bucket public access block
+resource "aws_s3_bucket_public_access_block" "data_lake_pab" {
+  bucket = aws_s3_bucket.data_lake.id
+  
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Outputs
+output "bucket_name" {
+  description = "Name of the data lake S3 bucket"
+  value       = aws_s3_bucket.data_lake.bucket
+}
+
+output "bucket_arn" {
+  description = "ARN of the data lake S3 bucket"
+  value       = aws_s3_bucket.data_lake.arn
+}
+
+output "kms_key_id" {
+  description = "KMS key ID for encryption"
+  value       = var.enable_encryption ? aws_kms_key.data_lake_key[0].key_id : null
+}
+```
+
+## Best Practices
+
+### IaC Implementation Guidelines
+
+1. **Template Organization**
+   - Use modular template design with reusable components
+   - Implement proper variable management and validation
+   - Maintain consistent naming conventions and tagging
+   - Use remote state management for team collaboration
+
+2. **Security and Compliance**
+   - Implement security scanning for templates
+   - Use least privilege access principles
+   - Enable encryption and security controls by default
+   - Maintain compliance with organizational policies
+
+3. **Version Control and Change Management**
+   - Version control all infrastructure code
+   - Implement code review processes
+   - Use branching strategies for environment management
+   - Maintain change documentation and approval processes
+
+4. **Testing and Validation**
+   - Implement automated template validation
+   - Use plan-before-apply workflows
+   - Test infrastructure changes in non-production environments
+   - Monitor for configuration drift
+
+## Summary
+
+Infrastructure as Code provides:
+
+- **Automated Infrastructure Management** - Consistent, repeatable infrastructure deployments
+- **Template-based Provisioning** - Reusable infrastructure components and patterns
+- **Change Management** - Controlled infrastructure changes with approval workflows
+- **Drift Detection** - Monitoring for infrastructure configuration drift
+
+Key components:
+- Terraform integration for infrastructure provisioning
+- Template management and orchestration
+- Deployment tracking and status monitoring
+- Environment-specific configuration management
+
+---
+
+**Next**: Learn about [Testing Data Pipelines](/chapters/devops/testing-pipelines) for comprehensive pipeline testing strategies.

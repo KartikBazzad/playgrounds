@@ -1,0 +1,376 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Integration Patterns
+
+Data integration patterns are architectural approaches for connecting and combining data from multiple sources. These patterns provide proven solutions for common integration challenges, ensuring reliable, scalable, and maintainable data pipelines.
+
+## Integration Patterns Overview
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Point-to-Point"
+        PP1[Source A] --> PP2[Target A]
+        PP3[Source B] --> PP4[Target B]
+    end
+    
+    subgraph "Hub and Spoke"
+        HS1[Source A] --> HS2[Central Hub]
+        HS3[Source B] --> HS2
+        HS2 --> HS5[Target A]
+        HS2 --> HS6[Target B]
+    end
+    
+    subgraph "Event-Driven"
+        ED1[Producer A] --> ED2[Event Stream]
+        ED3[Producer B] --> ED2
+        ED2 --> ED4[Consumer A]
+        ED2 --> ED5[Consumer B]
+    end
+    
+    style PP1 fill:#ffeb3b
+    style HS2 fill:#4caf50
+    style ED2 fill:#ff9800
+`} />
+
+## Point-to-Point Integration
+
+### Direct Connection Pattern
+
+```python
+# Point-to-point integration implementation
+import pandas as pd
+import requests
+from sqlalchemy import create_engine
+from typing import Dict, List, Any
+import logging
+from datetime import datetime
+
+class PointToPointIntegrator:
+    def __init__(self, source_config: Dict, target_config: Dict):
+        self.source_config = source_config
+        self.target_config = target_config
+        self.logger = logging.getLogger(__name__)
+        
+        if source_config['type'] == 'database':
+            self.source_conn = create_engine(source_config['connection_string'])
+        if target_config['type'] == 'database':
+            self.target_conn = create_engine(target_config['connection_string'])
+    
+    def database_to_database(self, query: str, target_table: str) -> bool:
+        """Direct database to database integration"""
+        try:
+            # Extract data
+            df = pd.read_sql(query, self.source_conn)
+            
+            # Add metadata
+            df['_integrated_at'] = datetime.now()
+            df['_source_system'] = self.source_config.get('name', 'unknown')
+            
+            # Load to target
+            df.to_sql(target_table, self.target_conn, if_exists='append', index=False)
+            
+            self.logger.info(f"Integrated {len(df)} records")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Integration failed: {e}")
+            return False
+    
+    def api_to_database(self, api_endpoint: str, target_table: str) -> bool:
+        """API to database integration"""
+        try:
+            response = requests.get(api_endpoint)
+            response.raise_for_status()
+            
+            data = response.json()
+            df = pd.json_normalize(data)
+            
+            df['_integrated_at'] = datetime.now()
+            df['_source_api'] = api_endpoint
+            
+            df.to_sql(target_table, self.target_conn, if_exists='append', index=False)
+            
+            self.logger.info(f"API integration completed: {len(df)} records")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"API integration failed: {e}")
+            return False
+
+# Usage
+source_config = {
+    'type': 'database',
+    'connection_string': 'postgresql://user:pass@source:5432/sales'
+}
+
+target_config = {
+    'type': 'database', 
+    'connection_string': 'postgresql://user:pass@warehouse:5432/analytics'
+}
+
+integrator = PointToPointIntegrator(source_config, target_config)
+success = integrator.database_to_database(
+    "SELECT * FROM orders WHERE created_date >= CURRENT_DATE - INTERVAL '1 day'",
+    "staging_orders"
+)
+```
+
+## Hub and Spoke Pattern
+
+### Centralized Integration Hub
+
+```python
+# Hub and spoke integration pattern
+import asyncio
+import aiohttp
+from typing import Dict, List, Any, Callable
+import logging
+
+class IntegrationHub:
+    def __init__(self, hub_config: Dict):
+        self.hub_config = hub_config
+        self.data_store = {}
+        self.transformers = {}
+        self.destinations = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def register_source(self, source_name: str, source_config: Dict):
+        """Register a data source with the hub"""
+        self.data_store[source_name] = {
+            'config': source_config,
+            'data': None,
+            'last_updated': None,
+            'status': 'registered'
+        }
+        self.logger.info(f"Source registered: {source_name}")
+    
+    def register_transformer(self, name: str, transform_func: Callable):
+        """Register a data transformation function"""
+        self.transformers[name] = transform_func
+        self.logger.info(f"Transformer registered: {name}")
+    
+    async def extract_from_source(self, source_name: str) -> bool:
+        """Extract data from a registered source"""
+        try:
+            source_info = self.data_store[source_name]
+            config = source_info['config']
+            
+            if config['type'] == 'database':
+                df = pd.read_sql(config['query'], create_engine(config['connection_string']))
+            elif config['type'] == 'api':
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(config['url']) as response:
+                        data = await response.json()
+                        df = pd.json_normalize(data)
+            
+            source_info['data'] = df
+            source_info['last_updated'] = datetime.now()
+            source_info['status'] = 'extracted'
+            
+            self.logger.info(f"Extracted {len(df)} records from {source_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Extraction failed for {source_name}: {e}")
+            return False
+    
+    def transform_data(self, source_name: str, transformer_name: str) -> bool:
+        """Apply transformation to source data"""
+        try:
+            source_info = self.data_store[source_name]
+            transformer = self.transformers[transformer_name]
+            
+            transformed_data = transformer(source_info['data'])
+            source_info['data'] = transformed_data
+            source_info['status'] = 'transformed'
+            
+            self.logger.info(f"Transformed data for {source_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Transformation failed: {e}")
+            return False
+
+# Example transformers
+def clean_customer_data(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.drop_duplicates(subset=['customer_id'])
+    df = df.dropna(subset=['customer_id', 'email'])
+    df['email'] = df['email'].str.lower().str.strip()
+    return df
+
+# Usage
+hub = IntegrationHub({'name': 'central_hub'})
+
+hub.register_source('customers_api', {
+    'type': 'api',
+    'url': 'https://api.example.com/customers'
+})
+
+hub.register_transformer('clean_customers', clean_customer_data)
+```
+
+## Event-Driven Integration
+
+### Event Streaming Pattern
+
+```python
+# Event-driven integration with Kafka
+from kafka import KafkaProducer, KafkaConsumer
+import json
+from typing import Dict, List, Callable
+import logging
+from datetime import datetime
+import threading
+
+class EventDrivenIntegrator:
+    def __init__(self, kafka_config: Dict):
+        self.kafka_config = kafka_config
+        self.producers = {}
+        self.consumers = {}
+        self.event_handlers = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def create_producer(self, producer_name: str) -> KafkaProducer:
+        """Create Kafka producer"""
+        producer = KafkaProducer(
+            bootstrap_servers=self.kafka_config['bootstrap_servers'],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        
+        self.producers[producer_name] = producer
+        self.logger.info(f"Producer created: {producer_name}")
+        return producer
+    
+    def publish_event(self, producer_name: str, topic: str, event: Dict):
+        """Publish event to Kafka topic"""
+        try:
+            producer = self.producers[producer_name]
+            
+            enriched_event = {
+                'event_id': f"{datetime.now().timestamp()}",
+                'timestamp': datetime.now().isoformat(),
+                'source': producer_name,
+                'data': event
+            }
+            
+            producer.send(topic, value=enriched_event)
+            producer.flush()
+            
+            self.logger.info(f"Event published to {topic}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to publish event: {e}")
+            return False
+    
+    def create_consumer(self, consumer_name: str, topics: List[str]):
+        """Create Kafka consumer"""
+        consumer = KafkaConsumer(
+            *topics,
+            bootstrap_servers=self.kafka_config['bootstrap_servers'],
+            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            group_id=f"{consumer_name}_group"
+        )
+        
+        self.consumers[consumer_name] = consumer
+        return consumer
+    
+    def register_event_handler(self, consumer_name: str, handler: Callable):
+        """Register event handler"""
+        self.event_handlers[consumer_name] = handler
+
+# Event handlers
+def customer_event_handler(event: Dict) -> bool:
+    try:
+        data = event['data']
+        event_type = data.get('event_type')
+        
+        if event_type == 'customer_created':
+            customer_id = data['customer_id']
+            logging.info(f"New customer: {customer_id}")
+            # Process new customer
+            
+        return True
+    except Exception as e:
+        logging.error(f"Handler failed: {e}")
+        return False
+
+# Usage
+kafka_config = {'bootstrap_servers': ['localhost:9092']}
+integrator = EventDrivenIntegrator(kafka_config)
+
+producer = integrator.create_producer('customer_producer')
+integrator.publish_event('customer_producer', 'customer_events', {
+    'event_type': 'customer_created',
+    'customer_id': 'C001',
+    'name': 'John Doe'
+})
+```
+
+## Integration Pattern Comparison
+
+| Pattern | Complexity | Scalability | Flexibility | Maintenance |
+|---------|------------|-------------|-------------|-------------|
+| **Point-to-Point** | Low | Poor | Low | High |
+| **Hub and Spoke** | Medium | Good | Medium | Medium |
+| **ESB** | High | Good | High | Medium |
+| **Event-Driven** | Medium | Excellent | High | Low |
+
+## When to Use Each Pattern
+
+### Point-to-Point
+- **Small number of integrations** (< 5 systems)
+- **Simple data flows** with minimal transformation
+- **Tight coupling acceptable**
+- **Quick implementation needed**
+
+### Hub and Spoke
+- **Moderate number of systems** (5-20)
+- **Centralized data transformation** required
+- **Data quality and governance** important
+- **Batch processing** acceptable
+
+### Event-Driven
+- **Real-time processing** required
+- **Loose coupling** needed
+- **High scalability** requirements
+- **Complex event processing** scenarios
+
+## Best Practices
+
+### General Principles
+- **Idempotency** - Ensure operations can be safely retried
+- **Error handling** - Implement comprehensive error handling
+- **Monitoring** - Monitor integration health and performance
+- **Documentation** - Document data flows and transformations
+- **Testing** - Test integrations thoroughly
+
+### Performance Optimization
+- **Batch processing** - Process data in batches when possible
+- **Parallel processing** - Use concurrent processing
+- **Caching** - Cache frequently accessed data
+- **Connection pooling** - Reuse database connections
+
+### Security Considerations
+- **Authentication** - Secure all integration endpoints
+- **Encryption** - Encrypt data in transit and at rest
+- **Access control** - Implement proper access controls
+- **Audit logging** - Log all integration activities
+
+## Summary
+
+Data integration patterns provide structured approaches to connecting systems:
+
+- **Point-to-Point** - Simple, direct connections for small-scale integrations
+- **Hub and Spoke** - Centralized approach for moderate complexity
+- **Event-Driven** - Scalable, real-time integration for modern architectures
+
+Choose patterns based on:
+- Number of systems to integrate
+- Real-time vs batch requirements
+- Scalability needs
+- Maintenance capabilities
+
+---
+
+**Next**: Learn about [Change Data Capture (CDC)](/chapters/data-ingestion/change-data-capture) for real-time data synchronization.

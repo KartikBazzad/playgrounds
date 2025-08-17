@@ -1,0 +1,2131 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Apache Flink: Advanced Stream Processing
+
+Apache Flink is a powerful distributed stream processing framework that provides low-latency, high-throughput, and exactly-once processing for both unbounded and bounded data streams. With its true streaming model, Flink enables sub-millisecond processing latencies while maintaining fault tolerance and exactly-once processing guarantees.
+
+## Why Choose Flink?
+
+### Key Advantages
+
+- **True Stream Processing**: Processes data as a continuous stream, not micro-batches
+- **Event Time Processing**: Handles out-of-order events using event time semantics
+- **Exactly-once State Consistency**: Ensures accurate results even with failures
+- **Scalability**: Horizontally scalable to thousands of nodes
+- **Rich APIs**: Multiple abstraction levels (DataStream, Table, SQL, CEP)
+- **State Management**: Built-in support for large, fault-tolerant state
+- **Batch as Special Case of Streaming**: Unified approach to batch and stream processing
+
+### When to Use Flink
+
+- **Low-latency processing** requirements (sub-millisecond to seconds)
+- **Event-time processing** with out-of-order events
+- **Stateful stream processing** with large state
+- **Exactly-once processing** guarantees
+- **Complex event processing** (CEP) patterns
+- **Batch and streaming** unified processing
+
+### Flink vs. Other Frameworks
+
+| Feature | Flink | Spark Streaming | Kafka Streams |
+|---------|-------|----------------|---------------|
+| Processing Model | True streaming | Micro-batching | True streaming |
+| Latency | Sub-millisecond | Seconds | Milliseconds |
+| State Management | Built-in, flexible | Limited | Built-in, local |
+| Event Time | First-class support | Supported | Supported |
+| Exactly-once | End-to-end | Micro-batch level | End-to-end |
+| Fault Tolerance | Chandy-Lamport | RDD-based | At-least-once |
+| Backpressure Handling | Built-in | Limited | Built-in |
+| Maturity | Production-ready | Production-ready | Production-ready |
+
+## Flink Architecture
+
+Flink's architecture is designed for high throughput and low latency processing of streaming data. It follows a master-worker architecture with several key components working together to provide fault-tolerant, stateful stream processing.
+
+### Deployment Modes
+
+Flink supports multiple deployment modes to fit different use cases:
+
+1. **Session Mode**
+   - Long-running Flink cluster
+   - Multiple jobs share resources
+   - Ideal for short jobs and development
+
+2. **Per-Job Mode**
+   - Dedicated cluster per job
+   - Better resource isolation
+   - Tuned configuration per job
+
+3. **Application Mode**
+   - Main method runs in the cluster
+   - Single job per cluster
+   - Better resource utilization
+
+4. **Kubernetes Native Mode**
+   - Native Kubernetes integration
+   - Dynamic scaling
+   - Resource management via Kubernetes
+
+### Core Components
+
+Flink's architecture consists of several key components that work together to process streaming data efficiently:
+
+1. **JobManager (Master)**
+   - Coordinates distributed execution
+   - Schedules tasks to TaskManagers
+   - Manages job lifecycle and checkpoints
+   - Handles recovery from failures
+   - Manages resource allocation
+
+2. **TaskManager (Worker)**
+   - Executes tasks in separate JVM processes
+   - Manages task slots (units of work)
+   - Handles data transfer between tasks
+   - Reports task status to JobManager
+   - Manages network buffers and memory
+
+3. **Task Slots**
+   - Unit of resource allocation in TaskManager
+   - Multiple tasks can run in the same slot (if resources allow)
+   - Isolates memory between tasks
+   - Enables better resource utilization
+
+4. **State Backend**
+   - Manages state storage and access
+   - Options: MemoryStateBackend, FsStateBackend, RocksDBStateBackend
+   - Handles checkpointing to persistent storage
+   - Manages state recovery
+
+5. **ResourceManager**
+   - Manages TaskManager slots
+   - Handles resource allocation and deallocation
+   - Integrates with cluster managers (YARN, Kubernetes, etc.)
+   - Manages task deployment
+
+6. **Dispatcher**
+   - Provides REST interface for job submission
+   - Starts new JobManager instances
+   - Manages job execution graphs
+   - Handles job recovery
+
+Here's how these components interact in a Flink cluster:
+
+<MermaidDiagram chart={`
+graph TB
+    %% JobManager components
+    subgraph JMCluster["JobManager"]
+        Dispatcher[Dispatcher]
+        JM[JobMaster]
+        RM[ResourceManager]
+        HA[High Availability]
+        
+        Dispatcher -->|Submit| JM
+        JM -->|Register| RM
+        JM -->|Checkpoint| HA
+    end
+    
+    %% TaskManager components
+    subgraph TM1["TaskManager 1"]
+        TM1_Slot1[Slot 1]
+        TM1_Slot2[Slot 2]
+        TM1_Net[Network Stack]
+        TM1_Mem[Memory Manager]
+    end
+    
+    subgraph TM2["TaskManager 2"]
+        TM2_Slot1[Slot 1]
+        TM2_Slot2[Slot 2]
+        TM2_Net[Network Stack]
+        TM2_Mem[Memory Manager]
+    end
+    
+    %% State Backend
+    State[(State Backend)]
+    
+    %% Data Sources
+    subgraph Sources["Data Sources"]
+        KF[Kafka]
+        KS[Kinesis]
+        FS[File System]
+    end
+    
+    %% Sinks
+    subgraph Sinks["Sinks"]
+        ES[Elasticsearch]
+        JDBC[JDBC]
+        FS2[File System]
+        Dashboard[Dashboard]
+    end
+    
+    %% Data Flow
+    KF -->|Source| TM1_Slot1
+    KS -->|Source| TM2_Slot1
+    FS -->|Source| TM2_Slot2
+    
+    %% TaskManager Communication
+    TM1_Net <-->|Shuffle| TM2_Net
+    
+    %% State Management
+    TM1_Slot1 -.->|Checkpoint| State
+    TM2_Slot1 -.->|Checkpoint| State
+    
+    %% JobManager Communication
+    JM -->|Deploy| TM1
+    JM -->|Deploy| TM2
+    RM -->|Allocate| TM1
+    RM -->|Allocate| TM2
+    
+    %% Sink Connections
+    TM1_Slot1 -->|Write| ES
+    TM2_Slot1 -->|Write| JDBC
+    TM2_Slot2 -->|Write| FS2
+    
+    %% Styling
+    style JM fill:#e3f2fd,stroke:#1565c0
+    style Dispatcher fill:#e3f2fd,stroke:#1565c0
+    style RM fill:#e3f2fd,stroke:#1565c0
+    style HA fill:#e3f2fd,stroke:#1565c0
+    
+    style TM1 fill:#e8f5e9,stroke:#2e7d32
+    style TM2 fill:#e8f5e9,stroke:#2e7d32
+    
+    style State fill:#fff3e0,stroke:#ef6c00
+    
+    style KF fill:#f3e5f5,stroke:#7b1fa2
+    style KS fill:#f3e5f5,stroke:#7b1fa2
+    style FS fill:#f3e5f5,stroke:#7b1fa2
+    
+    style ES fill:#e8f5e9,stroke:#2e7d32
+    style JDBC fill:#e8f5e9,stroke:#2e7d32
+    style FS2 fill:#e8f5e9,stroke:#2e7d32
+    style Dashboard fill:#e8f5e9,stroke:#2e7d32
+`} />
+
+## Data Flow in Flink
+
+Understanding how data flows through a Flink application is crucial for building efficient streaming pipelines. Let's break down the data flow from ingestion to processing to output.
+
+### 1. Data Ingestion
+
+Flink supports various data sources:
+
+- **Message Queues**: Kafka, Kinesis, RabbitMQ
+- **File Systems**: HDFS, S3, local files
+- **Databases**: JDBC, Cassandra, MongoDB
+- **Custom Sources**: Implement `SourceFunction`
+
+### 2. Processing Model
+
+Flink's processing model is based on:
+
+- **Streams**: Immutable, distributed data collections
+- **Transformations**: Operations on streams (map, filter, keyBy, etc.)
+- **State**: Local, fault-tolerant state for each operator
+- **Time**: Event time, processing time, and ingestion time
+
+### 3. Execution Model
+
+Flink's execution model ensures:
+
+- **Pipelined Execution**: Data flows between operators without materialization
+- **Task Chaining**: Multiple operations in the same thread
+- **Backpressure Handling**: Automatic flow control
+- **Checkpointing**: Consistent state snapshots
+
+### 4. Data Sinking
+
+Processed data can be written to:
+
+- **Databases**: JDBC, Cassandra, HBase
+- **Message Queues**: Kafka, Kinesis
+- **File Systems**: HDFS, S3
+- **Custom Sinks**: Implement `SinkFunction`
+
+## Key Components in Detail
+
+### 1. JobManager (Master)
+
+The JobManager is the master process that controls the execution of a single application. Key responsibilities include:
+
+- **Job Scheduling**: Converts job graphs into execution graphs
+- **Task Deployment**: Distributes tasks to TaskManagers
+- **Checkpoint Coordination**: Orchestrates consistent snapshots
+- **Failure Recovery**: Handles task failures and restarts
+- **Resource Management**: Works with ResourceManager for slot allocation
+
+### 2. TaskManager (Worker)
+
+TaskManagers are the worker nodes that execute the actual data processing:
+
+- **Task Execution**: Run operators and user functions
+- **Network Stack**: Handle data transfer between tasks
+- **Memory Management**: Manage JVM memory and network buffers
+- **State Storage**: Maintain operator state and keyed state
+- **Checkpointing**: Participate in distributed snapshots
+
+### 3. Task Slots
+
+Task slots are the basic unit of resource allocation in Flink:
+
+- **Resource Isolation**: Each slot gets a fixed portion of memory
+- **Task Parallelism**: Multiple tasks can run in the same slot
+- **Slot Sharing**: Tasks from the same job can share slots
+- **Resource Guarantees**: Memory isolation between slots
+
+### 4. State Backends
+
+Flink provides different state backends for state storage:
+
+- **MemoryStateBackend**: For testing and small state (in-memory)
+- **FsStateBackend**: For large state, checkpoints to filesystem
+- **RocksDBStateBackend**: For very large state, local RocksDB + filesystem
+- **Custom Backends**: Implement `StateBackend` interface
+
+### 5. ResourceManager
+
+Manages TaskManager slots and resource allocation:
+
+- **Slot Management**: Tracks available/allocated slots
+- **Resource Allocation**: Assigns slots to jobs
+- **Cluster Integration**: Works with YARN, Kubernetes, etc.
+- **Dynamic Scaling**: Adjusts resources based on load
+
+### 6. Dispatcher
+
+Handles job submission and provides REST interface:
+
+- **Job Submission**: Accepts and validates job submissions
+- **Web Dashboard**: Provides UI for monitoring
+- **High Availability**: Integrates with ZooKeeper for failover
+- **Session Management**: Manages job sessions
+
+## Data Flow and Processing
+
+### Event Processing Pipeline
+
+Flink's data flow is built around the concept of a directed acyclic graph (DAG) where each node represents an operation and edges represent data dependencies. Here's a comprehensive view of how data flows through a Flink application:
+
+<MermaidDiagram chart={`
+graph TB
+    %% Data Sources
+    subgraph "Data Sources"
+        KF[Kafka]
+        FS[File System]
+        JDBC[JDBC Source]
+    end
+    
+    %% Processing Pipeline
+    subgraph "Processing Pipeline"
+        %% Source Operators
+        Source1[Kafka Source]
+        Source2[File Source]
+        Source3[JDBC Source]
+        
+        %% Processing Operators
+        Map1[Map/FlatMap]
+        Filter1[Filter]
+        KeyBy1[KeyBy]
+        Window1[Window]
+        Agg1[Aggregate/Reduce]
+        Join1[Join]
+        Process1[Process Function]
+        
+        %% Sink Operators
+        Sink1[Kafka Sink]
+        Sink2[File Sink]
+        Sink3[JDBC Sink]
+        
+        %% Data Flow
+        KF --> Source1
+        FS --> Source2
+        JDBC --> Source3
+        
+        Source1 --> Map1
+        Source2 --> Filter1
+        Source3 --> KeyBy1
+        
+        Map1 --> KeyBy1
+        Filter1 --> Join1
+        KeyBy1 --> Window1
+        
+        Window1 --> Agg1
+        Agg1 --> Process1
+        Process1 --> Join1
+        
+        Join1 --> Sink1
+        Process1 --> Sink2
+        Agg1 --> Sink3
+    end
+    
+    %% State Management
+    subgraph "State Management"
+        State1[Operator State]
+        State2[Keyed State]
+        State3[Window State]
+        
+        Map1 -.-> State1
+        KeyBy1 -.-> State2
+        Window1 -.-> State3
+    end
+    
+    %% Checkpointing
+    subgraph "Fault Tolerance"
+        CP1[Checkpoint Coordinator]
+        CP2[State Backend]
+        
+        CP1 -->|Trigger| CP2
+        State1 -.-> CP2
+        State2 -.-> CP2
+        State3 -.-> CP2
+    end
+    
+    %% Styling
+    style KF fill:#f3e5f5,stroke:#7b1fa2
+    style FS fill:#f3e5f5,stroke:#7b1fa2
+    style JDBC fill:#f3e5f5,stroke:#7b1fa2
+    
+    style Source1 fill:#e3f2fd,stroke:#1565c0
+    style Source2 fill:#e3f2fd,stroke:#1565c0
+    style Source3 fill:#e3f2fd,stroke:#1565c0
+    
+    style Map1 fill:#e8f5e9,stroke:#2e7d32
+    style Filter1 fill:#e8f5e9,stroke:#2e7d32
+    style KeyBy1 fill:#e8f5e9,stroke:#2e7d32
+    style Window1 fill:#e8f5e9,stroke:#2e7d32
+    style Agg1 fill:#e8f5e9,stroke:#2e7d32
+    style Join1 fill:#e8f5e9,stroke:#2e7d32
+    style Process1 fill:#e8f5e9,stroke:#2e7d32
+    
+    style Sink1 fill:#ffebee,stroke:#c62828
+    style Sink2 fill:#ffebee,stroke:#c62828
+    style Sink3 fill:#ffebee,stroke:#c62828
+    
+    style State1 fill:#fff3e0,stroke:#ef6c00
+    style State2 fill:#fff3e0,stroke:#ef6c00
+    style State3 fill:#fff3e0,stroke:#ef6c00
+    
+    style CP1 fill:#f3e5f5,stroke:#7b1fa2
+    style CP2 fill:#f3e5f5,stroke:#7b1fa2
+`} />
+
+### Key Components in the Data Flow
+
+1. **Sources**
+   - **Kafka Source**: Stream ingestion from Apache Kafka
+   - **File Source**: Read from distributed file systems
+   - **JDBC Source**: Connect to relational databases
+   - **Custom Sources**: Implement `SourceFunction` for custom sources
+
+2. **Processing Operators**
+   - **Map/FlatMap**: Transform each element
+   - **Filter**: Selectively process elements
+   - **KeyBy**: Partition data by key
+   - **Window**: Group elements into windows
+   - **Aggregate/Reduce**: Compute aggregations
+   - **Join**: Combine multiple streams
+   - **Process Function**: Low-level stream processing
+
+3. **State Management**
+   - **Operator State**: State per operator instance
+   - **Keyed State**: State per key in keyed streams
+   - **Window State**: State for window operations
+   - **State Backends**: Manage how state is stored and accessed
+
+4. **Sinks**
+   - **Kafka Sink**: Write to Kafka topics
+   - **File Sink**: Write to distributed storage
+   - **JDBC Sink**: Write to databases
+   - **Custom Sinks**: Implement `SinkFunction` for custom destinations
+
+5. **Fault Tolerance**
+   - **Checkpointing**: Periodic state snapshots
+   - **State Backend**: Storage for checkpoints
+   - **Savepoints**: Manual checkpoints for versioning
+   - **Recovery**: Automatic restart from failures
+
+## Execution Model
+
+Flink's execution model is designed for high throughput and low latency processing of both bounded and unbounded data streams. Let's explore its key aspects in detail.
+
+### 1. Pipelined Data Exchange
+
+Flink uses a pipelined execution model where data flows directly between operators without materialization:
+
+<MermaidDiagram chart={`
+graph LR
+    subgraph "Pipelined Execution"
+        Source[Source] -->|Record 1| Map[Map]
+        Map -->|Processed 1| KeyBy[KeyBy]
+        KeyBy -->|Keyed 1| Sink[Sink]
+        
+        Source -->|Record 2| Map
+        Map -->|Processed 2| KeyBy
+        KeyBy -->|Keyed 2| Sink
+        
+        Source -->|Record 3| Map
+        Map -->|Processed 3| KeyBy
+        KeyBy -->|Keyed 3| Sink
+    end
+    
+    subgraph "Batch Execution (for comparison)"
+        BSource[Source] -->|Batch 1,2,3| BMap[Map]
+        BMap -->|Processed 1,2,3| BKeyBy[KeyBy]
+        BKeyBy -->|Keyed 1,2,3| BSink[Sink]
+    end
+    
+    style Pipelined fill:#e8f5e9,stroke:#2e7d32
+    style Batch fill:#ffebee,stroke:#c62828
+`} />
+
+**Key Characteristics:**
+- **Record-at-a-time processing**: Each record is processed as it arrives
+- **No buffering**: Minimal latency between operators
+- **Backpressure**: Automatic flow control between operators
+- **Efficient resource usage**: No need to wait for full batches
+
+### 2. Task Chaining
+
+Flink optimizes execution by chaining multiple operations into a single task:
+
+<MermaidDiagram chart={`
+graph LR
+    %% Without Chaining
+    subgraph "Without Chaining"
+        Source1[Source] --> Task1[Map]
+        Task1 --> Task2[Filter]
+        Task2 --> Task3[Map]
+        Task3 --> Sink1[Sink]
+    end
+    
+    %% With Chaining
+    subgraph "With Chaining"
+        Source2[Source] --> Task4[Map -> Filter -> Map]
+        Task4 --> Sink2[Sink]
+    end
+    
+    style Without fill:#ffebee,stroke:#c62828
+    style With fill:#e8f5e9,stroke:#2e7d32
+`} />
+
+**Benefits of Chaining:**
+- **Reduced serialization/deserialization**: Data stays in memory
+- **Lower latency**: No network overhead between chained operators
+- **Better throughput**: Fewer threads and context switches
+
+### 3. Task Deployment
+
+Flink's task deployment model ensures efficient resource utilization:
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "TaskManager 1"
+        TM1_Slot1[Slot 1]
+        TM1_Slot2[Slot 2]
+    end
+    
+    subgraph "TaskManager 2"
+        TM2_Slot1[Slot 1]
+        TM2_Slot2[Slot 2]
+    end
+    
+    %% Task Deployment
+    Source[Source] -->|Deployed to| TM1_Slot1
+    Map1[Map 1] -->|Deployed to| TM1_Slot1
+    Map2[Map 2] -->|Deployed to| TM1_Slot2
+    KeyBy1[KeyBy] -->|Deployed to| TM2_Slot1
+    Sink1[Sink] -->|Deployed to| TM2_Slot2
+    
+    %% Data Flow
+    Source -->|Data| Map1
+    Source -->|Data| Map2
+    Map1 -->|Shuffle| KeyBy1
+    Map2 -->|Shuffle| KeyBy1
+    KeyBy1 -->|Partitioned| Sink1
+    
+    %% Styling
+    style Source fill:#e3f2fd,stroke:#1565c0
+    style Map1 fill:#e8f5e9,stroke:#2e7d32
+    style Map2 fill:#e8f5e9,stroke:#2e7d32
+    style KeyBy1 fill:#e8f5e9,stroke:#2e7d32
+    style Sink1 fill:#ffebee,stroke:#c62828
+`} />
+
+**Deployment Strategy:**
+- **Slot Sharing**: Multiple tasks can share the same slot
+- **Resource Isolation**: Memory is isolated between slots
+- **Dynamic Scaling**: Tasks can be scaled independently
+- **Load Balancing**: Even distribution of tasks across TaskManagers
+
+### 4. Parallel Execution
+
+Flink parallelizes execution across multiple task slots:
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Parallel Execution"
+        Source[Source] -->|Partition 1| Map1[Map 1]
+        Source -->|Partition 2| Map2[Map 2]
+        Source -->|Partition 3| Map3[Map 3]
+        
+        Map1 -->|Key A| KeyBy1[KeyBy A]
+        Map1 -->|Key B| KeyBy2[KeyBy B]
+        Map2 -->|Key A| KeyBy1
+        Map2 -->|Key C| KeyBy3[KeyBy C]
+        Map3 -->|Key B| KeyBy2
+        Map3 -->|Key C| KeyBy3
+        
+        KeyBy1 --> Sink1[Sink A]
+        KeyBy2 --> Sink2[Sink B]
+        KeyBy3 --> Sink3[Sink C]
+    end
+    
+    style Source fill:#e3f2fd,stroke:#1565c0
+    style Map1 fill:#e8f5e9,stroke:#2e7d32
+    style Map2 fill:#e8f5e9,stroke:#2e7d32
+    style Map3 fill:#e8f5e9,stroke:#2e7d32
+    style KeyBy1 fill:#fff3e0,stroke:#ef6c00
+    style KeyBy2 fill:#fff3e0,stroke:#ef6c00
+    style KeyBy3 fill:#fff3e0,stroke:#ef6c00
+    style Sink1 fill:#ffebee,stroke:#c62828
+    style Sink2 fill:#ffebee,stroke:#c62828
+    style Sink3 fill:#ffebee,stroke:#c62828
+`} />
+
+**Parallelism Concepts:**
+- **Operator Parallelism**: Each operator can have its own parallelism
+- **Key Groups**: Keys are hashed to ensure consistent partitioning
+- **Rescaling**: Parallelism can be changed with savepoints
+- **Rebalancing**: Automatic data redistribution on scale-out
+
+### 5. Event Time Processing
+
+Flink's event time model handles out-of-order events and late data:
+
+<MermaidDiagram chart={`
+graph LR
+    subgraph "Event Time Processing"
+        Source[Source] -->|Event Time| Assigner[Timestamp Assigner]
+        Assigner -->|Watermark| Window[Window Operator]
+        Window -->|Late Data| SideOutput[Side Output]
+        Window -->|Results| Sink[Sink]
+    end
+    
+    subgraph "Event Time Line"
+        E1[Event 1: t=1]
+        E2[Event 2: t=3]
+        E3[Event 3: t=2]
+        W[Watermark: t=2]
+        
+        E1 -->|Arrives first| Assigner
+        E2 -->|Arrives second| Assigner
+        E3 -->|Arrives third (late)| Assigner
+        
+        Assigner -->|Generates| W
+        W -->|Triggers| Window
+    end
+    
+    %% Styling
+    style E1 fill:#e8f5e9,stroke:#2e7d32
+    style E2 fill:#e8f5e9,stroke:#2e7d32
+    style E3 fill:#fff3e0,stroke:#ef6c00
+    style W fill:#e3f2fd,stroke:#1565c0
+    style Window fill:#f3e5f5,stroke:#7b1fa2
+`} />
+
+## Fault Tolerance and Recovery
+
+Flink provides robust fault tolerance mechanisms to ensure exactly-once processing semantics even in the face of failures. Let's explore these mechanisms in detail.
+
+### 1. Checkpointing
+
+Checkpointing is Flink's primary mechanism for fault tolerance, creating consistent snapshots of the entire application state:   
+
+<MermaidDiagram chart={`
+graph LR
+    subgraph "Checkpointing Process"
+        JM[JobManager] -->|1. Trigger Checkpoint| CP[Checkpoint Coordinator]
+        CP -->|2. Inject Barrier| Source[Source Operator]
+        Source -->|3. Snapshot State| Backend[State Backend]
+        Source -->|4. Forward Barrier| Map[Map Operator]
+        Map -->|5. Snapshot State| Backend
+        Map -->|6. Forward Barrier| Sink[Sink Operator]
+        Sink -->|7. Snapshot State| Backend
+        Sink -->|8. Acknowledge| CP
+        CP -->|9. Complete| JM
+    end
+    
+    style CP fill:#f9f,stroke:#333,stroke-width:2px
+    style Backend fill:#9f9,stroke:#333,stroke-width:2px
+    style Source,Map,Sink fill:#bbf,stroke:#333,stroke-width:2px
+    style CP fill:#fff3e0,stroke:#ef6c00
+    style Backend fill:#f3e5f5,stroke:#7b1fa2
+`} />
+
+**Checkpointing Steps:**
+1. **Barrier Injection**: JobManager injects checkpoint barriers into the data stream
+2. **Barrier Alignment**: Operators wait to process records until all inputs have received the barrier
+3. **State Snapshot**: Each operator takes a snapshot of its state
+4. **Acknowledgment**: Operators notify JobManager of successful checkpoint completion
+5. **Completion**: JobManager marks the checkpoint as complete
+
+### 2. State Backends
+
+Flink provides different state backends for storing and managing state:
+
+| Backend Type | Storage | Performance | State Size | Production Use |
+|--------------|---------|-------------|------------|----------------|
+| **MemoryStateBackend** | JVM Heap | Fast | < 1GB | Development only |
+| **FsStateBackend** | Filesystem (local/remote) | Good | Large | General purpose |
+| **RocksDBStateBackend** | Local RocksDB + Filesystem | Slower | Very large | Large state, high availability |
+
+### 3. Savepoints
+
+Savepoints are manually triggered checkpoints that store the complete state of the streaming application.
+
+#### Common Use Cases
+
+- Pause and resume jobs
+- Upgrade Flink versions
+- Change job graphs
+- Scale clusters
+- Perform A/B testing
+
+#### Triggering a Savepoint
+
+```bash
+# Syntax
+bin/flink savepoint JOB_ID [TARGET_DIRECTORY]
+
+# Example
+bin/flink savepoint abcdef1234567890 hdfs:///savepoints/
+```
+
+#### Resuming from a Savepoint
+
+```bash
+# Syntax
+bin/flink run -s SAVEPOINT_PATH [RUN_ARGS]
+
+# Example
+bin/flink run -s hdfs:///savepoints/savepoint-abcdef-123456 \
+   -d /path/to/your/job.jar
+```
+
+#### Best Practices
+
+- Store savepoints in persistent, fault-tolerant storage (HDFS, S3, etc.)
+- Use meaningful names and timestamps for savepoint directories
+- Monitor savepoint sizes and creation times
+- Test savepoint restoration in staging environments
+- Verify compatibility when upgrading Flink versions
+
+### 4. Recovery Mechanisms
+
+Flink provides multiple recovery strategies:
+
+1. **Full Restart Strategy**
+   - Restarts all tasks
+   - Simple but may be slow for large jobs
+   ```python
+   env.set_restart_strategy(
+       RestartStrategies.fixed_delay_restart(
+           3,  # number of restart attempts
+           10000  # delay between attempts (ms)
+       )
+   )
+   ```
+
+2. **Region Failover**
+   - Restarts only failed regions
+   - Faster recovery for large jobs
+   - Default in Flink 1.10+
+
+3. **Task-Level Recovery**
+   - Restarts only failed tasks
+   - Most granular recovery
+   - Higher overhead
+
+### 5. Exactly-Once Guarantees
+
+Flink provides end-to-end exactly-once processing through:
+
+1. **Two-Phase Commit Protocol**
+   - For sinks that support transactions
+   - Coordinates commits across distributed systems
+   - Ensures atomic writes
+
+2. **Idempotent Operations**
+   - Operations can be applied multiple times without changing the result
+   - Simplifies exactly-once implementation
+
+3. **Transactional Sinks**
+   - Kafka, JDBC, and other sinks support transactions
+   - Flink manages transaction lifecycle
+
+### 6. High Availability Setup
+
+For production deployments, Flink supports high availability configurations:
+
+```yaml
+# conf/flink-conf.yaml
+high-availability: zookeeper
+high-availability.storageDir: hdfs:///flink/ha/
+high-availability.zookeeper.quorum: zk1:2181,zk2:2181,zk3:2181
+high-availability.zookeeper.path.root: /flink
+high-availability.cluster-id: /default
+```
+
+**Components:**
+- **ZooKeeper**: For leader election and coordination
+- **Distributed Storage**: For storing job metadata and checkpoints
+- **Multiple JobManagers**: For automatic failover
+
+### 7. Monitoring and Metrics
+
+Flink provides comprehensive metrics for monitoring fault tolerance:
+
+- **Checkpoint Metrics**
+  - Checkpoint duration
+  - State size
+  - Alignment time
+  - Number of failed checkpoints
+
+- **System Metrics**
+  - CPU/memory usage
+  - Network buffers
+  - Garbage collection
+
+- **Custom Metrics**
+  - User-defined metrics
+  - Integration with monitoring systems (Prometheus, Graphite, etc.)
+
+### 8. Best Practices
+
+1. **Checkpoint Configuration**
+   ```python
+   # Configure checkpointing
+   env.enable_checkpointing(60000)  # 60 seconds
+   env.get_checkpoint_config().set_checkpointing_mode(CheckpointingMode.EXACTLY_ONCE)
+   env.get_checkpoint_config().set_min_pause_between_checkpoints(30000)
+   env.get_checkpoint_config().set_checkpoint_timeout(600000)
+   env.get_checkpoint_config().set_max_concurrent_checkpoints(1)
+   env.get_checkpoint_config().enable_externalized_checkpoints(
+       ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION)
+   ```
+
+2. **State Management**
+   - Use appropriate state backends
+   - Keep state size manageable
+   - Use TTL for state cleanup
+
+3. **Monitoring**
+   - Set up alerts for checkpoint failures
+   - Monitor recovery times
+   - Track state size growth
+
+4. **Testing**
+   - Test failure scenarios
+   - Verify recovery behavior
+   - Measure recovery time objectives (RTO)
+
+## Scalability and Performance Tuning
+
+Flink's architecture is designed for horizontal scalability and high performance. Here's how to optimize your Flink applications:
+
+### 1. Scaling Strategies
+
+1. **Horizontal Scaling**
+   - Add more TaskManagers to increase processing capacity
+   - Scale based on metrics like CPU usage, backpressure, and checkpoint alignment
+   - Use container orchestration (Kubernetes, YARN) for automatic scaling
+
+2. **Parallelism Tuning**
+   - Set appropriate parallelism for each operator
+   - Consider data skew when setting parallelism
+   - Use `setParallelism()` to configure operator-level parallelism
+
+3. **State Scaling**
+   - Use RocksDB for large state that exceeds memory
+   - Configure RocksDB for optimal performance
+   - Consider state TTL for automatic cleanup
+
+### 2. Performance Optimization
+
+1. **Network Stack**
+   - Configure network buffers for optimal throughput
+   - Tune buffer sizes based on network latency
+   - Enable native async I/O where supported
+
+2. **Memory Management**
+   - Configure JVM heap and managed memory
+   - Tune garbage collection settings
+   - Monitor memory usage patterns
+
+3. **Checkpointing**
+   - Optimize checkpoint interval for your latency requirements
+   - Use incremental checkpoints for large state
+   - Distribute checkpoints across different storage backends
+
+### 3. Resource Management
+
+1. **Slot Allocation**
+   - Share slots for better resource utilization
+   - Configure task slots based on CPU cores
+   - Monitor slot utilization metrics
+
+2. **Task Chaining**
+   - Chain operators to reduce serialization overhead
+   - Use `startNewChain()` and `disableChaining()` for fine-grained control
+   - Balance between chaining and parallelism
+
+3. **Backpressure Handling**
+   - Monitor backpressure metrics
+   - Scale resources based on backpressure
+   - Tune buffering and checkpointing under backpressure
+
+## Practical Example: Real-time Fraud Detection
+
+Let's implement a real-time fraud detection system using Flink's DataStream API. This example will demonstrate:
+
+1. Event time processing with watermarks
+2. Keyed state management
+3. Windowing and aggregation
+4. Custom process functions
+5. Fault tolerance with checkpoints
+
+### 1. Environment Setup
+
+First, let's set up our Flink environment and dependencies:
+
+```python
+# requirements.txt
+apache-flink==1.15.0
+kafka-python==2.0.2
+python-dateutil==2.8.2
+```
+
+### 2. Defining Our Data Model
+
+```python
+# models.py
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+@dataclass
+class Transaction:
+    transaction_id: str
+    account_id: str
+    amount: float
+    currency: str
+    merchant_id: str
+    timestamp: datetime
+    location: Optional[str] = None
+    is_fraud: bool = False
+
+@dataclass
+class Account:
+    account_id: str
+    name: str
+    balance: float
+    risk_score: float
+    last_transaction_time: datetime
+```
+
+### 3. Implementing the Fraud Detection Job
+
+```python
+# fraud_detection.py
+import json
+import os
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple
+
+from pyflink.common.serialization import SimpleStringSchema
+from pyflink.common.typeinfo import Types
+from pyflink.common.watermark_strategy import WatermarkStrategy
+from pyflink.datastream import StreamExecutionEnvironment, RuntimeExecutionMode
+from pyflink.datastream.connectors.kafka import (
+    FlinkKafkaConsumer, 
+    FlinkKafkaProducer
+)
+from pyflink.datastream.functions import (
+    KeyedProcessFunction, 
+    RuntimeContext
+)
+from pyflink.datastream.state import (
+    ValueStateDescriptor,
+    ValueState,
+    MapState,
+    MapStateDescriptor
+)
+from pyflink.common.time import Time
+
+from models import Transaction, Account
+
+# Constants
+BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+TRANSACTIONS_TOPIC = 'transactions'
+ALERTS_TOPIC = 'fraud_alerts'
+
+class FraudDetector(KeyedProcessFunction):
+    """Detects potentially fraudulent transactions"""
+    
+    def __init__(self):
+        self.account_state: ValueState = None
+        self.transaction_count_state: MapState = None
+    
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize account state
+        account_descriptor = ValueStateDescriptor(
+            "account_state", 
+            Types.PICKLED_BYTE_ARRAY()
+        )
+        self.account_state = runtime_context.get_state(account_descriptor)
+        
+        # Initialize transaction count state (last hour)
+        transaction_count_descriptor = MapStateDescriptor(
+            "transaction_count",
+            Types.STRING(),  # Window start time as string
+            Types.INT()      # Transaction count
+        )
+        self.transaction_count_state = runtime_context.get_map_state(
+            transaction_count_descriptor
+        )
+    
+    def process_element(
+        self, 
+        transaction: Transaction,
+        ctx: 'KeyedProcessFunction.Context',
+        out
+    ):
+        # Get current account state
+        account = self.account_state.value()
+        
+        if account is None:
+            # Initialize new account (in a real app, this would come from a database)
+            account = Account(
+                account_id=transaction.account_id,
+                name=f"Account-{transaction.account_id}",
+                balance=10000.0,  # Default balance
+                risk_score=0.0,
+                last_transaction_time=transaction.timestamp
+            )
+        
+        # Update transaction count for current hour
+        current_hour = transaction.timestamp.strftime('%Y-%m-%dT%H:00:00')
+        current_count = self.transaction_count_state.get(current_hour) or 0
+        self.transaction_count_state.put(current_hour, current_count + 1)
+        
+        # Clean up old transaction counts (older than 24 hours)
+        self.cleanup_old_counts(transaction.timestamp)
+        
+        # Calculate transaction rate (transactions per hour)
+        transaction_rate = self.calculate_transaction_rate(transaction.timestamp)
+        
+        # Check for fraud patterns
+        is_fraudulent = self.check_for_fraud(transaction, account, transaction_rate)
+        
+        if is_fraudulent:
+            transaction.is_fraud = True
+            out.collect(transaction)
+        
+        # Update account state
+        account.last_transaction_time = transaction.timestamp
+        self.account_state.update(account)
+    
+    def cleanup_old_counts(self, current_time: datetime):
+        """Remove transaction counts older than 24 hours"""
+        one_day_ago = current_time - timedelta(hours=24)
+        
+        # Create a copy of keys to avoid concurrent modification
+        time_windows = list(self.transaction_count_state.keys())
+        
+        for window in time_windows:
+            window_time = datetime.fromisoformat(window)
+            if window_time < one_day_ago:
+                self.transaction_count_state.remove(window)
+    
+    def calculate_transaction_rate(self, current_time: datetime) -> float:
+        """Calculate transactions per hour in the last 24 hours"""
+        one_hour_ago = current_time - timedelta(hours=1)
+        total_transactions = 0
+        
+        for window, count in self.transaction_count_state.items():
+            window_time = datetime.fromisoformat(window)
+            if window_time >= one_hour_ago:
+                total_transactions += count
+        
+        return total_transactions  # Transactions in the last hour
+    
+    def check_for_fraud(
+        self, 
+        transaction: Transaction, 
+        account: Account, 
+        transaction_rate: float
+    ) -> bool:
+        """Check if a transaction is potentially fraudulent"""
+        # Rule 1: Large transaction amount
+        if transaction.amount > 10000:  # $10,000 threshold
+            return True
+            
+        # Rule 2: High transaction rate
+        if transaction_rate > 50:  # More than 50 transactions/hour
+            return True
+            
+        # Rule 3: Unusual location (simplified example)
+        if hasattr(transaction, 'location') and transaction.location != 'US':
+            account.risk_score += 10
+            
+        # Rule 4: High-risk merchant
+        if transaction.merchant_id in ['high_risk_merchant_1', 'high_risk_merchant_2']:
+            account.risk_score += 20
+            
+        # Check if risk score exceeds threshold
+        if account.risk_score > 50:
+            return True
+            
+        return False
+
+def create_fraud_detection_job():
+    # Set up the execution environment
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
+    env.set_parallelism(4)
+    
+    # Enable checkpointing every 10 seconds
+    env.enable_checkpointing(10000)
+    
+    # Define the Kafka source
+    kafka_source = FlinkKafkaConsumer(
+        topics=TRANSACTIONS_TOPIC,
+        deserialization_schema=SimpleStringSchema(),
+        properties={
+            'bootstrap.servers': BOOTSTRAP_SERVERS,
+            'group.id': 'fraud-detection-group',
+            'auto.offset.reset': 'earliest'
+        }
+    )
+    
+    # Define the Kafka sink for alerts
+    kafka_sink = FlinkKafkaProducer(
+        topic=ALERTS_TOPIC,
+        serialization_schema=SimpleStringSchema(),
+        producer_config={
+            'bootstrap.servers': BOOTSTRAP_SERVERS,
+            'transaction.timeout.ms': '60000'  # 1 minute
+        }
+    )
+    
+    # Create the pipeline
+    transaction_stream = env \
+        .add_source(kafka_source) \
+        .name('Kafka Source') \
+        .map(
+            lambda x: Transaction(**json.loads(x)),
+            output_type=Types.PICKLED_BYTE_ARRAY()
+        ) \
+        .name('Deserialize Transaction')
+    
+    # Process transactions and detect fraud
+    fraud_alerts = transaction_stream \
+        .key_by(lambda x: x.account_id) \
+        .process(FraudDetector()) \
+        .name('Fraud Detection')
+    
+    # Convert fraud alerts to JSON and write to Kafka
+    fraud_alerts \
+        .map(
+            lambda x: json.dumps(x.__dict__, default=str),
+            output_type=Types.STRING()
+        ) \
+        .name('Serialize Alert') \
+        .add_sink(kafka_sink) \
+        .name('Kafka Sink')
+    
+    return env
+
+if __name__ == "__main__":
+    # Create and execute the job
+    job = create_fraud_detection_job()
+    job.execute("Real-time Fraud Detection")
+```
+
+### 4. Running the Example
+
+1. **Set up Kafka** (if not already running):
+   ```bash
+   # Start Zookeeper
+   bin/zookeeper-server-start.sh config/zookeeper.properties
+   
+   # Start Kafka
+   bin/kafka-server-start.sh config/server.properties
+   
+   # Create topics
+   bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 4 --topic transactions
+   bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 4 --topic fraud_alerts
+   ```
+
+2. **Start a Kafka console producer** to send test transactions:
+   ```bash
+   bin/kafka-console-producer.sh --broker-list localhost:9092 --topic transactions
+   ```
+   
+   Example transaction (paste into the console):
+   ```json
+   {
+     "transaction_id": "tx123",
+     "account_id": "acc456",
+     "amount": 15000.0,
+     "currency": "USD",
+     "merchant_id": "m123",
+     "timestamp": "2023-06-15T14:30:00",
+     "location": "US"
+   }
+   ```
+
+3. **Start a Kafka console consumer** to view fraud alerts:
+   ```bash
+   bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic fraud_alerts --from-beginning
+   ```
+
+4. **Run the Flink job**:
+   ```bash
+   python fraud_detection.py
+   ```
+
+### 5. Key Features Demonstrated
+
+1. **Event Time Processing**:
+   - Uses event timestamps from transactions
+   - Handles out-of-order events
+   - Supports late data with watermarks
+
+2. **State Management**:
+   - Keyed state for account information
+   - Map state for transaction counting
+   - State cleanup to prevent unbounded growth
+
+3. **Fault Tolerance**:
+   - Checkpointing enabled
+   - Exactly-once processing guarantees
+   - State recovery on failure
+
+4. **Scalability**:
+   - Parallel processing with key partitioning
+   - Horizontal scaling with multiple TaskManagers
+   - Backpressure handling
+
+5. **Fraud Detection Rules**:
+   - Large transaction amounts
+   - High transaction rates
+   - Unusual locations
+   - High-risk merchants
+   - Dynamic risk scoring
+
+### 6. Monitoring and Operations
+
+Monitor your Flink job using:
+
+1. **Flink Web UI** (default: http://localhost:8081)
+   - View job graph
+   - Monitor throughput and latency
+   - Check task status and metrics
+
+2. **Metrics**
+   - Built-in metrics for sources, operators, and sinks
+   - Custom metrics for fraud detection
+   - Integration with Prometheus/Grafana
+
+3. **Alerting**
+   - Configure alerts for high fraud rates
+   - Integration with PagerDuty/Slack
+   - Custom alerting rules
+
+### 7. Production Considerations
+
+1. **Performance Tuning**:
+   - Adjust parallelism based on workload
+   - Configure memory and network buffers
+   - Optimize state backend (RocksDB for large state)
+
+2. **High Availability**:
+   - Configure HA for JobManager
+   - Use distributed file system for checkpoints
+   - Set up monitoring and alerting
+
+3. **Security**:
+   - Enable SSL/TLS for network communication
+   - Configure authentication and authorization
+   - Secure sensitive configuration
+
+4. **Upgrades**:
+   - Use savepoints for version upgrades
+   - Test compatibility with existing state
+   - Plan for rollback procedures
+    end
+    
+    subgraph "Flink Runtime"
+        FR1[JobManager]
+        FR2[TaskManager 1]
+        FR3[TaskManager 2]
+        FR4[TaskManager N]
+    end
+    
+    subgraph "Stream Processing"
+        SP1[DataStream API]
+        SP2[Table API]
+        SP3[SQL API]
+        SP4[CEP Library]
+    end
+    
+    subgraph "State Management"
+        SM1[Keyed State]
+        SM2[Operator State]
+        SM3[Checkpoints]
+        SM4[Savepoints]
+    end
+    
+    subgraph "Output Sinks"
+        OS1[Kafka]
+        OS2[Elasticsearch]
+        OS3[Databases]
+        OS4[File Systems]
+    end
+    
+    DS1 --> FR1
+    DS2 --> FR1
+    DS3 --> FR1
+    DS4 --> FR1
+    
+    FR1 --> FR2
+    FR1 --> FR3
+    FR1 --> FR4
+    
+    FR2 --> SP1
+    FR3 --> SP2
+    FR4 --> SP3
+    
+    SP1 --> SM1
+    SP2 --> SM2
+    SP3 --> SM3
+    SP4 --> SM4
+    
+    SM1 --> OS1
+    SM2 --> OS2
+    SM3 --> OS3
+    SM4 --> OS4
+    
+    style FR1 fill:#e3f2fd
+    style SP1 fill:#e8f5e8
+    style SM1 fill:#fff3e0
+`} />
+
+## DataStream API Implementation
+
+### Basic Stream Processing
+
+```python
+# Apache Flink DataStream API implementation
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.table import StreamTableEnvironment
+from pyflink.datastream.connectors import FlinkKafkaConsumer, FlinkKafkaProducer
+from pyflink.common.serialization import SimpleStringSchema, JsonRowSerializationSchema
+from pyflink.common.typeinfo import Types
+from pyflink.datastream.functions import MapFunction, FilterFunction, KeyedProcessFunction
+from pyflink.datastream.state import ValueStateDescriptor, ListStateDescriptor
+import json
+from typing import Dict, List, Any, Optional
+import logging
+from datetime import datetime, timedelta
+
+class FlinkStreamProcessor:
+    """Apache Flink stream processor"""
+    
+    def __init__(self, job_name: str = "FlinkStreamingJob"):
+        self.env = StreamExecutionEnvironment.get_execution_environment()
+        self.env.set_parallelism(4)
+        self.job_name = job_name
+        self.logger = logging.getLogger(__name__)
+        
+        # Enable checkpointing for fault tolerance
+        self.env.enable_checkpointing(60000)  # Checkpoint every minute
+        
+    def create_kafka_source(self, kafka_config: Dict, topics: List[str]):
+        """Create Kafka source"""
+        
+        try:
+            properties = {
+                'bootstrap.servers': kafka_config['bootstrap_servers'],
+                'group.id': kafka_config.get('group_id', 'flink-consumer-group')
+            }
+            
+            kafka_consumer = FlinkKafkaConsumer(
+                topics=topics,
+                deserialization_schema=SimpleStringSchema(),
+                properties=properties
+            )
+            
+            # Set starting position
+            kafka_consumer.set_start_from_latest()
+            
+            source_stream = self.env.add_source(kafka_consumer)
+            self.logger.info(f"Created Kafka source for topics: {topics}")
+            
+            return source_stream
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create Kafka source: {e}")
+            return None
+    
+    def create_kafka_sink(self, kafka_config: Dict, topic: str):
+        """Create Kafka sink"""
+        
+        try:
+            properties = {
+                'bootstrap.servers': kafka_config['bootstrap_servers']
+            }
+            
+            kafka_producer = FlinkKafkaProducer(
+                topic=topic,
+                serialization_schema=SimpleStringSchema(),
+                producer_config=properties
+            )
+            
+            self.logger.info(f"Created Kafka sink for topic: {topic}")
+            return kafka_producer
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create Kafka sink: {e}")
+            return None
+
+# Custom transformation functions
+class JsonParserMap(MapFunction):
+    """Parse JSON messages"""
+    
+    def map(self, value):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return {"error": "invalid_json", "raw_data": value}
+
+class EventFilter(FilterFunction):
+    """Filter events based on criteria"""
+    
+    def __init__(self, event_types: List[str]):
+        self.event_types = event_types
+    
+    def filter(self, value):
+        if isinstance(value, dict):
+            return value.get('event_type') in self.event_types
+        return False
+
+class EventEnricher(MapFunction):
+    """Enrich events with additional data"""
+    
+    def map(self, value):
+        if isinstance(value, dict):
+            # Add processing metadata
+            value['processed_at'] = datetime.now().isoformat()
+            value['processor'] = 'flink'
+            
+            # Add derived fields
+            if 'timestamp' in value:
+                try:
+                    event_time = datetime.fromisoformat(value['timestamp'])
+                    value['hour_of_day'] = event_time.hour
+                    value['day_of_week'] = event_time.weekday()
+                except:
+                    pass
+        
+        return value
+
+# Stateful processing function
+class SessionAggregator(KeyedProcessFunction):
+    """Aggregate events by session with state"""
+    
+    def __init__(self, session_timeout_ms: int = 1800000):  # 30 minutes
+        self.session_timeout_ms = session_timeout_ms
+        
+    def open(self, runtime_context):
+        # Define state descriptors
+        self.session_state = runtime_context.get_state(
+            ValueStateDescriptor("session", Types.PICKLED_BYTE_ARRAY())
+        )
+        
+        self.timer_state = runtime_context.get_state(
+            ValueStateDescriptor("timer", Types.LONG())
+        )
+    
+    def process_element(self, value, ctx):
+        # Get current session state
+        current_session = self.session_state.value()
+        
+        if current_session is None:
+            # Start new session
+            current_session = {
+                'user_id': value.get('user_id'),
+                'session_start': value.get('timestamp'),
+                'event_count': 0,
+                'total_value': 0.0,
+                'events': []
+            }
+        
+        # Update session
+        current_session['event_count'] += 1
+        current_session['total_value'] += value.get('value', 0.0)
+        current_session['events'].append(value.get('event_type'))
+        current_session['last_activity'] = value.get('timestamp')
+        
+        # Update state
+        self.session_state.update(current_session)
+        
+        # Set/update timer for session timeout
+        timer_timestamp = ctx.timestamp() + self.session_timeout_ms
+        ctx.timer_service().register_processing_time_timer(timer_timestamp)
+        self.timer_state.update(timer_timestamp)
+        
+        # Emit intermediate result
+        yield current_session
+    
+    def on_timer(self, timestamp, ctx):
+        # Session timed out - emit final result and clear state
+        final_session = self.session_state.value()
+        
+        if final_session:
+            final_session['session_ended'] = True
+            final_session['session_duration'] = timestamp - ctx.timestamp()
+            yield final_session
+        
+        # Clear state
+        self.session_state.clear()
+        self.timer_state.clear()
+
+# Complex Event Processing
+class PatternDetector(KeyedProcessFunction):
+    """Detect complex patterns in event streams"""
+    
+    def __init__(self, pattern_config: Dict):
+        self.pattern_config = pattern_config
+        
+    def open(self, runtime_context):
+        # State to store event buffer
+        self.event_buffer = runtime_context.get_list_state(
+            ListStateDescriptor("events", Types.PICKLED_BYTE_ARRAY())
+        )
+        
+    def process_element(self, value, ctx):
+        # Add event to buffer
+        events = list(self.event_buffer.get())
+        events.append(value)
+        
+        # Keep only recent events (sliding window)
+        max_events = self.pattern_config.get('max_events', 100)
+        if len(events) > max_events:
+            events = events[-max_events:]
+        
+        # Update state
+        self.event_buffer.clear()
+        self.event_buffer.add_all(events)
+        
+        # Detect patterns
+        detected_patterns = self.detect_patterns(events)
+        
+        for pattern in detected_patterns:
+            yield pattern
+    
+    def detect_patterns(self, events: List[Dict]) -> List[Dict]:
+        """Detect patterns in event sequence"""
+        
+        patterns = []
+        
+        # Pattern 1: Rapid succession (3+ events within 10 seconds)
+        if len(events) >= 3:
+            recent_events = events[-3:]
+            timestamps = [datetime.fromisoformat(e['timestamp']) for e in recent_events]
+            
+            time_span = (timestamps[-1] - timestamps[0]).total_seconds()
+            
+            if time_span <= 10:
+                patterns.append({
+                    'pattern_type': 'rapid_succession',
+                    'user_id': events[-1].get('user_id'),
+                    'event_count': len(recent_events),
+                    'time_span': time_span,
+                    'detected_at': datetime.now().isoformat()
+                })
+        
+        # Pattern 2: Anomalous value (value > 3 standard deviations)
+        if len(events) >= 10:
+            values = [e.get('value', 0) for e in events[-10:]]
+            mean_val = sum(values) / len(values)
+            variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+            std_dev = variance ** 0.5
+            
+            current_value = events[-1].get('value', 0)
+            
+            if abs(current_value - mean_val) > 3 * std_dev:
+                patterns.append({
+                    'pattern_type': 'anomalous_value',
+                    'user_id': events[-1].get('user_id'),
+                    'current_value': current_value,
+                    'mean_value': mean_val,
+                    'std_deviation': std_dev,
+                    'detected_at': datetime.now().isoformat()
+                })
+        
+        return patterns
+
+# Example: Real-time fraud detection pipeline
+def create_fraud_detection_pipeline():
+    """Create real-time fraud detection pipeline with Flink"""
+    
+    processor = FlinkStreamProcessor("FraudDetection")
+    
+    # Kafka configuration
+    kafka_config = {
+        'bootstrap_servers': 'localhost:9092',
+        'group_id': 'fraud-detection-group'
+    }
+    
+    # Create source stream
+    source_stream = processor.create_kafka_source(kafka_config, ['transactions'])
+    
+    if source_stream:
+        # Parse JSON messages
+        parsed_stream = source_stream.map(JsonParserMap())
+        
+        # Filter valid transactions
+        valid_transactions = parsed_stream.filter(
+            EventFilter(['purchase', 'withdrawal', 'transfer'])
+        )
+        
+        # Enrich with metadata
+        enriched_stream = valid_transactions.map(EventEnricher())
+        
+        # Key by user_id for stateful processing
+        keyed_stream = enriched_stream.key_by(lambda x: x.get('user_id', 'unknown'))
+        
+        # Aggregate by session
+        session_aggregates = keyed_stream.process(
+            SessionAggregator(session_timeout_ms=1800000)  # 30 minutes
+        )
+        
+        # Detect fraud patterns
+        pattern_config = {'max_events': 50}
+        fraud_patterns = keyed_stream.process(PatternDetector(pattern_config))
+        
+        # Create output sinks
+        alerts_sink = processor.create_kafka_sink(kafka_config, 'fraud_alerts')
+        sessions_sink = processor.create_kafka_sink(kafka_config, 'user_sessions')
+        
+        if alerts_sink and sessions_sink:
+            # Send fraud patterns to alerts topic
+            fraud_patterns.map(lambda x: json.dumps(x)).add_sink(alerts_sink)
+            
+            # Send session data to sessions topic
+            session_aggregates.map(lambda x: json.dumps(x)).add_sink(sessions_sink)
+            
+            # Execute the job
+            processor.env.execute(processor.job_name)
+
+# create_fraud_detection_pipeline()
+```
+
+## Table API and SQL
+
+### SQL-Based Stream Processing
+
+```python
+# Flink Table API and SQL implementation
+from pyflink.table import EnvironmentSettings, StreamTableEnvironment
+from pyflink.table.descriptors import Schema, Kafka, Json
+from pyflink.table.window import Tumble, Session, Slide
+import logging
+
+class FlinkSQLProcessor:
+    """Flink SQL-based stream processor"""
+    
+    def __init__(self):
+        # Create table environment
+        env_settings = EnvironmentSettings.new_instance().in_streaming_mode().use_blink_planner().build()
+        self.table_env = StreamTableEnvironment.create(environment_settings=env_settings)
+        
+        self.logger = logging.getLogger(__name__)
+        
+        # Enable checkpointing
+        self.table_env.get_config().get_configuration().set_string(
+            "execution.checkpointing.interval", "60s"
+        )
+    
+    def create_kafka_table(self, table_name: str, kafka_config: Dict, 
+                          topic: str, schema_fields: Dict):
+        """Create Kafka table for SQL queries"""
+        
+        try:
+            # Build schema
+            schema_ddl = ", ".join([f"{name} {dtype}" for name, dtype in schema_fields.items()])
+            
+            # Create table DDL
+            create_table_ddl = f"""
+                CREATE TABLE {table_name} (
+                    {schema_ddl}
+                ) WITH (
+                    'connector' = 'kafka',
+                    'topic' = '{topic}',
+                    'properties.bootstrap.servers' = '{kafka_config['bootstrap_servers']}',
+                    'properties.group.id' = '{kafka_config.get('group_id', 'flink-sql-group')}',
+                    'format' = 'json',
+                    'scan.startup.mode' = 'latest-offset'
+                )
+            """
+            
+            self.table_env.execute_sql(create_table_ddl)
+            self.logger.info(f"Created Kafka table: {table_name}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create Kafka table: {e}")
+    
+    def create_sink_table(self, table_name: str, sink_config: Dict):
+        """Create sink table for output"""
+        
+        try:
+            if sink_config['type'] == 'kafka':
+                schema_ddl = ", ".join([f"{name} {dtype}" for name, dtype in sink_config['schema'].items()])
+                
+                create_sink_ddl = f"""
+                    CREATE TABLE {table_name} (
+                        {schema_ddl}
+                    ) WITH (
+                        'connector' = 'kafka',
+                        'topic' = '{sink_config['topic']}',
+                        'properties.bootstrap.servers' = '{sink_config['bootstrap_servers']}',
+                        'format' = 'json'
+                    )
+                """
+                
+            elif sink_config['type'] == 'elasticsearch':
+                schema_ddl = ", ".join([f"{name} {dtype}" for name, dtype in sink_config['schema'].items()])
+                
+                create_sink_ddl = f"""
+                    CREATE TABLE {table_name} (
+                        {schema_ddl}
+                    ) WITH (
+                        'connector' = 'elasticsearch-7',
+                        'hosts' = '{sink_config['hosts']}',
+                        'index' = '{sink_config['index']}'
+                    )
+                """
+            
+            self.table_env.execute_sql(create_sink_ddl)
+            self.logger.info(f"Created sink table: {table_name}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create sink table: {e}")
+    
+    def execute_streaming_sql(self, sql_query: str, output_table: str):
+        """Execute streaming SQL query"""
+        
+        try:
+            # Execute query and insert results into output table
+            insert_sql = f"INSERT INTO {output_table} {sql_query}"
+            
+            table_result = self.table_env.execute_sql(insert_sql)
+            self.logger.info(f"Executing streaming SQL query")
+            
+            return table_result
+            
+        except Exception as e:
+            self.logger.error(f"SQL execution failed: {e}")
+            return None
+
+# Example: Real-time analytics with SQL
+def create_sql_analytics_pipeline():
+    """Create real-time analytics pipeline using Flink SQL"""
+    
+    processor = FlinkSQLProcessor()
+    
+    # Kafka configuration
+    kafka_config = {
+        'bootstrap_servers': 'localhost:9092',
+        'group_id': 'analytics-sql-group'
+    }
+    
+    # Create source tables
+    processor.create_kafka_table(
+        'user_events',
+        kafka_config,
+        'user_events',
+        {
+            'user_id': 'STRING',
+            'event_type': 'STRING',
+            'timestamp': 'TIMESTAMP(3)',
+            'value': 'DOUBLE',
+            'session_id': 'STRING',
+            'WATERMARK FOR timestamp': 'timestamp - INTERVAL \'5\' SECOND'
+        }
+    )
+    
+    processor.create_kafka_table(
+        'transactions',
+        kafka_config,
+        'transactions',
+        {
+            'transaction_id': 'STRING',
+            'user_id': 'STRING',
+            'amount': 'DOUBLE',
+            'merchant_id': 'STRING',
+            'timestamp': 'TIMESTAMP(3)',
+            'WATERMARK FOR timestamp': 'timestamp - INTERVAL \'5\' SECOND'
+        }
+    )
+    
+    # Create sink tables
+    processor.create_sink_table(
+        'user_activity_summary',
+        {
+            'type': 'kafka',
+            'topic': 'user_activity_summary',
+            'bootstrap_servers': 'localhost:9092',
+            'schema': {
+                'window_start': 'TIMESTAMP(3)',
+                'window_end': 'TIMESTAMP(3)',
+                'user_id': 'STRING',
+                'event_count': 'BIGINT',
+                'total_value': 'DOUBLE',
+                'avg_value': 'DOUBLE'
+            }
+        }
+    )
+    
+    processor.create_sink_table(
+        'transaction_alerts',
+        {
+            'type': 'kafka',
+            'topic': 'transaction_alerts',
+            'bootstrap_servers': 'localhost:9092',
+            'schema': {
+                'user_id': 'STRING',
+                'total_amount': 'DOUBLE',
+                'transaction_count': 'BIGINT',
+                'alert_type': 'STRING',
+                'window_start': 'TIMESTAMP(3)'
+            }
+        }
+    )
+    
+    # SQL queries for real-time analytics
+    
+    # 1. User activity summary (5-minute tumbling windows)
+    user_activity_sql = """
+        SELECT 
+            TUMBLE_START(timestamp, INTERVAL '5' MINUTE) as window_start,
+            TUMBLE_END(timestamp, INTERVAL '5' MINUTE) as window_end,
+            user_id,
+            COUNT(*) as event_count,
+            SUM(value) as total_value,
+            AVG(value) as avg_value
+        FROM user_events
+        GROUP BY 
+            TUMBLE(timestamp, INTERVAL '5' MINUTE),
+            user_id
+    """
+    
+    # 2. Transaction alerts (detect high-value transactions)
+    transaction_alerts_sql = """
+        SELECT 
+            user_id,
+            SUM(amount) as total_amount,
+            COUNT(*) as transaction_count,
+            CASE 
+                WHEN SUM(amount) > 10000 THEN 'HIGH_VALUE_ALERT'
+                WHEN COUNT(*) > 50 THEN 'HIGH_FREQUENCY_ALERT'
+                ELSE 'NORMAL'
+            END as alert_type,
+            TUMBLE_START(timestamp, INTERVAL '1' HOUR) as window_start
+        FROM transactions
+        GROUP BY 
+            TUMBLE(timestamp, INTERVAL '1' HOUR),
+            user_id
+        HAVING 
+            SUM(amount) > 5000 OR COUNT(*) > 20
+    """
+    
+    # Execute queries
+    processor.execute_streaming_sql(user_activity_sql, 'user_activity_summary')
+    processor.execute_streaming_sql(transaction_alerts_sql, 'transaction_alerts')
+    
+    print("SQL analytics pipeline started")
+
+# create_sql_analytics_pipeline()
+```
+
+## Advanced Features
+
+### Complex Event Processing (CEP)
+
+```python
+# Flink CEP (Complex Event Processing)
+from pyflink.cep import CEP, Pattern
+from pyflink.cep.pattern_stream import PatternStream
+from pyflink.cep.functions import PatternProcessFunction
+from pyflink.datastream.functions import MapFunction
+
+class CEPProcessor:
+    """Complex Event Processing with Flink CEP"""
+    
+    def __init__(self, env):
+        self.env = env
+    
+    def create_fraud_detection_pattern(self, input_stream):
+        """Create CEP pattern for fraud detection"""
+        
+        # Define pattern: Large transaction followed by multiple small transactions
+        pattern = Pattern.begin("large_transaction") \
+            .where(lambda event: event.get('amount', 0) > 1000) \
+            .next("small_transactions") \
+            .where(lambda event: event.get('amount', 0) < 100) \
+            .times_or_more(3) \
+            .within_time(minutes=10)
+        
+        # Apply pattern to keyed stream
+        keyed_stream = input_stream.key_by(lambda x: x.get('user_id'))
+        pattern_stream = CEP.pattern(keyed_stream, pattern)
+        
+        return pattern_stream
+    
+    def create_user_journey_pattern(self, input_stream):
+        """Create pattern for user journey analysis"""
+        
+        # Pattern: Login -> Browse -> Purchase within 1 hour
+        pattern = Pattern.begin("login") \
+            .where(lambda event: event.get('event_type') == 'login') \
+            .followed_by("browse") \
+            .where(lambda event: event.get('event_type') == 'page_view') \
+            .one_or_more() \
+            .followed_by("purchase") \
+            .where(lambda event: event.get('event_type') == 'purchase') \
+            .within_time(hours=1)
+        
+        keyed_stream = input_stream.key_by(lambda x: x.get('user_id'))
+        pattern_stream = CEP.pattern(keyed_stream, pattern)
+        
+        return pattern_stream
+
+class FraudPatternProcessor(PatternProcessFunction):
+    """Process detected fraud patterns"""
+    
+    def process_match(self, match, ctx):
+        large_tx = match.get('large_transaction')[0]
+        small_txs = match.get('small_transactions')
+        
+        alert = {
+            'alert_type': 'potential_fraud',
+            'user_id': large_tx.get('user_id'),
+            'large_transaction_amount': large_tx.get('amount'),
+            'small_transactions_count': len(small_txs),
+            'total_small_amount': sum(tx.get('amount', 0) for tx in small_txs),
+            'time_window': f"{ctx.timestamp()}",
+            'detected_at': datetime.now().isoformat()
+        }
+        
+        yield alert
+
+# Usage
+def create_cep_pipeline():
+    """Create CEP-based fraud detection pipeline"""
+    
+    processor = FlinkStreamProcessor("CEPFraudDetection")
+    
+    # Create input stream
+    kafka_config = {'bootstrap_servers': 'localhost:9092'}
+    input_stream = processor.create_kafka_source(kafka_config, ['transactions'])
+    
+    if input_stream:
+        # Parse JSON
+        parsed_stream = input_stream.map(JsonParserMap())
+        
+        # Create CEP processor
+        cep_processor = CEPProcessor(processor.env)
+        
+        # Create fraud detection pattern
+        fraud_pattern_stream = cep_processor.create_fraud_detection_pattern(parsed_stream)
+        
+        # Process matches
+        fraud_alerts = fraud_pattern_stream.process(FraudPatternProcessor())
+        
+        # Output alerts
+        alerts_sink = processor.create_kafka_sink(kafka_config, 'fraud_alerts_cep')
+        fraud_alerts.map(lambda x: json.dumps(x)).add_sink(alerts_sink)
+        
+        # Execute
+        processor.env.execute("CEP Fraud Detection")
+
+# create_cep_pipeline()
+```
+
+## Performance Optimization
+
+### Flink Performance Tuning
+
+```python
+# Flink performance optimization
+class FlinkOptimizer:
+    """Optimize Flink job performance"""
+    
+    @staticmethod
+    def configure_environment(env, config: Dict):
+        """Configure Flink environment for optimal performance"""
+        
+        # Parallelism settings
+        env.set_parallelism(config.get('parallelism', 4))
+        
+        # Checkpointing configuration
+        checkpoint_interval = config.get('checkpoint_interval', 60000)
+        env.enable_checkpointing(checkpoint_interval)
+        
+        # State backend configuration
+        env.set_state_backend(config.get('state_backend', 'filesystem'))
+        
+        # Restart strategy
+        env.set_restart_strategy(config.get('restart_strategy', 'fixed-delay'))
+        
+        # Buffer timeout
+        env.set_buffer_timeout(config.get('buffer_timeout', 100))
+        
+        # Network buffer configuration
+        env.get_config().set_string("taskmanager.network.memory.fraction", "0.1")
+        env.get_config().set_string("taskmanager.network.memory.min", "64mb")
+        env.get_config().set_string("taskmanager.network.memory.max", "1gb")
+    
+    @staticmethod
+    def optimize_operators(stream, optimization_config: Dict):
+        """Apply operator-level optimizations"""
+        
+        # Operator chaining
+        if optimization_config.get('disable_chaining', False):
+            stream = stream.disable_chaining()
+        
+        # Slot sharing
+        if optimization_config.get('slot_sharing_group'):
+            stream = stream.slot_sharing_group(optimization_config['slot_sharing_group'])
+        
+        # Resource requirements
+        if optimization_config.get('resources'):
+            resources = optimization_config['resources']
+            stream = stream.set_resources(
+                resources.get('cpu', 1.0),
+                resources.get('heap_memory', 128),
+                resources.get('direct_memory', 64),
+                resources.get('native_memory', 64)
+            )
+        
+        return stream
+
+# Usage
+def create_optimized_pipeline():
+    """Create performance-optimized Flink pipeline"""
+    
+    processor = FlinkStreamProcessor("OptimizedPipeline")
+    
+    # Optimization configuration
+    env_config = {
+        'parallelism': 8,
+        'checkpoint_interval': 30000,
+        'state_backend': 'rocksdb',
+        'restart_strategy': 'exponential-delay',
+        'buffer_timeout': 50
+    }
+    
+    # Configure environment
+    FlinkOptimizer.configure_environment(processor.env, env_config)
+    
+    # Create optimized stream
+    kafka_config = {'bootstrap_servers': 'localhost:9092'}
+    input_stream = processor.create_kafka_source(kafka_config, ['high_volume_events'])
+    
+    if input_stream:
+        # Apply optimizations
+        optimization_config = {
+            'slot_sharing_group': 'processing_group',
+            'resources': {
+                'cpu': 2.0,
+                'heap_memory': 512,
+                'direct_memory': 128
+            }
+        }
+        
+        optimized_stream = FlinkOptimizer.optimize_operators(input_stream, optimization_config)
+        
+        # Process with optimized operators
+        processed_stream = optimized_stream \
+            .map(JsonParserMap()).name("json_parser") \
+            .filter(EventFilter(['important_event'])).name("event_filter") \
+            .key_by(lambda x: x.get('partition_key')) \
+            .map(EventEnricher()).name("event_enricher")
+        
+        # Output
+        sink = processor.create_kafka_sink(kafka_config, 'processed_events')
+        processed_stream.map(lambda x: json.dumps(x)).add_sink(sink)
+        
+        processor.env.execute("Optimized Pipeline")
+
+# create_optimized_pipeline()
+```
+
+## Best Practices
+
+### Flink Development Best Practices
+
+1. **State Management**
+   - Use keyed state for scalability
+   - Implement proper state cleanup
+   - Choose appropriate state backend
+
+2. **Checkpointing**
+   - Enable checkpointing for fault tolerance
+   - Use incremental checkpoints for large state
+   - Configure appropriate intervals
+
+3. **Performance**
+   - Optimize parallelism settings
+   - Use operator chaining effectively
+   - Monitor backpressure
+
+4. **Resource Management**
+   - Configure memory settings properly
+   - Use slot sharing groups
+   - Monitor resource utilization
+
+## Common Use Cases
+
+### Real-Time Applications
+- **Fraud detection** - Real-time transaction monitoring
+- **Recommendation engines** - Live user behavior analysis
+- **IoT processing** - Sensor data stream processing
+- **Financial trading** - Low-latency market data processing
+
+### Stream Analytics
+- **Real-time dashboards** - Live metrics and KPIs
+- **Anomaly detection** - Pattern recognition in streams
+- **Event correlation** - Complex event processing
+- **Data enrichment** - Real-time data augmentation
+
+## Summary
+
+Apache Flink provides:
+
+- **True stream processing** - Event-by-event processing with low latency
+- **Exactly-once semantics** - Guaranteed message processing
+- **Rich APIs** - DataStream, Table, SQL, and CEP APIs
+- **Stateful processing** - Managed state with fault tolerance
+
+Key advantages:
+- Sub-millisecond latencies
+- High throughput capabilities
+- Advanced windowing and time handling
+- Comprehensive ecosystem integration
+
+---
+
+**Next**: Learn about [Event-Driven Architecture](/chapters/stream-processing/event-driven-architecture) for building reactive systems.

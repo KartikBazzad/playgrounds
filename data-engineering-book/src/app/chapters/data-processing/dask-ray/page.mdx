@@ -1,0 +1,624 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Dask and Ray
+
+Dask and Ray are Python-native distributed computing frameworks that enable parallel and distributed processing of large datasets. They provide familiar APIs for scaling Python workloads from single machines to large clusters.
+
+## Framework Comparison
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Dask Architecture"
+        DC[Dask Client]
+        DS[Dask Scheduler]
+        DW1[Dask Worker 1]
+        DW2[Dask Worker 2]
+        DW3[Dask Worker N]
+    end
+    
+    subgraph "Ray Architecture"
+        RC[Ray Client]
+        RH[Ray Head Node]
+        RW1[Ray Worker 1]
+        RW2[Ray Worker 2]
+        RW3[Ray Worker N]
+    end
+    
+    DC --> DS
+    DS --> DW1
+    DS --> DW2
+    DS --> DW3
+    
+    RC --> RH
+    RH --> RW1
+    RH --> RW2
+    RH --> RW3
+    
+    style DS fill:#e3f2fd
+    style RH fill:#e8f5e8
+`} />
+
+## Dask Framework
+
+### Dask DataFrames and Distributed Computing
+
+```python
+# Dask distributed computing
+import dask
+import dask.dataframe as dd
+import dask.array as da
+import dask.bag as db
+from dask.distributed import Client
+from dask import delayed
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Any
+import logging
+
+class DaskProcessor:
+    """Dask distributed data processor"""
+    
+    def __init__(self, scheduler_address: str = None, n_workers: int = 4):
+        """Initialize Dask client"""
+        
+        if scheduler_address:
+            self.client = Client(scheduler_address)
+        else:
+            # Local cluster
+            self.client = Client(n_workers=n_workers, threads_per_worker=2)
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Dask client initialized: {self.client}")
+    
+    def create_sample_dataframe(self, n_partitions: int = 4, rows_per_partition: int = 10000):
+        """Create sample Dask DataFrame"""
+        
+        # Create sample data
+        def make_partition(i):
+            return pd.DataFrame({
+                'id': range(i * rows_per_partition, (i + 1) * rows_per_partition),
+                'value': np.random.randn(rows_per_partition),
+                'category': np.random.choice(['A', 'B', 'C'], rows_per_partition),
+                'timestamp': pd.date_range('2023-01-01', periods=rows_per_partition, freq='1min')
+            })
+        
+        # Create delayed partitions
+        partitions = [delayed(make_partition)(i) for i in range(n_partitions)]
+        
+        # Convert to Dask DataFrame
+        df = dd.from_delayed(partitions)
+        
+        self.logger.info(f"Created Dask DataFrame with {n_partitions} partitions")
+        return df
+    
+    def dataframe_operations(self, df: dd.DataFrame):
+        """Demonstrate Dask DataFrame operations"""
+        
+        # Basic operations
+        print("=== Basic DataFrame Operations ===")
+        print(f"DataFrame shape: {df.shape}")
+        print(f"Columns: {df.columns.tolist()}")
+        
+        # Aggregations
+        mean_value = df['value'].mean().compute()
+        print(f"Mean value: {mean_value:.4f}")
+        
+        category_counts = df['category'].value_counts().compute()
+        print(f"Category counts:\n{category_counts}")
+        
+        # Groupby operations
+        grouped_stats = df.groupby('category').agg({
+            'value': ['mean', 'std', 'count'],
+            'id': 'max'
+        }).compute()
+        print(f"Grouped statistics:\n{grouped_stats}")
+        
+        # Filtering and transformations
+        filtered_df = df[df['value'] > 0]
+        filtered_count = len(filtered_df)
+        print(f"Positive values count: {filtered_count}")
+        
+        # Custom transformations
+        df_transformed = df.assign(
+            value_squared=df['value'] ** 2,
+            value_category=df['value'].map_partitions(
+                lambda x: pd.cut(x, bins=[-np.inf, -1, 0, 1, np.inf], 
+                               labels=['very_low', 'low', 'high', 'very_high'])
+            )
+        )
+        
+        return df_transformed
+    
+    def array_operations(self):
+        """Demonstrate Dask Array operations"""
+        
+        print("\n=== Dask Array Operations ===")
+        
+        # Create large array
+        x = da.random.random((10000, 10000), chunks=(1000, 1000))
+        print(f"Array shape: {x.shape}")
+        print(f"Array chunks: {x.chunks}")
+        
+        # Mathematical operations
+        y = x + 1
+        z = da.sin(y)
+        
+        # Reductions
+        mean_val = z.mean().compute()
+        std_val = z.std().compute()
+        
+        print(f"Array mean: {mean_val:.6f}")
+        print(f"Array std: {std_val:.6f}")
+        
+        # Linear algebra
+        a = da.random.random((5000, 1000), chunks=(1000, 1000))
+        b = da.random.random((1000, 2000), chunks=(1000, 1000))
+        
+        # Matrix multiplication
+        c = da.dot(a, b)
+        result_shape = c.shape
+        
+        print(f"Matrix multiplication result shape: {result_shape}")
+        
+        return c
+    
+    def machine_learning_example(self, df: dd.DataFrame):
+        """Machine learning with Dask"""
+        
+        print("\n=== Machine Learning with Dask ===")
+        
+        from dask_ml.model_selection import train_test_split
+        from dask_ml.linear_model import LinearRegression
+        from dask_ml.metrics import mean_squared_error
+        from dask_ml.preprocessing import StandardScaler
+        
+        # Prepare features
+        features = df[['value', 'id']].values
+        target = (df['value'] ** 2 + df['id'] * 0.001).values
+        
+        # Train-test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            features, target, test_size=0.2, random_state=42
+        )
+        
+        # Scale features
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        # Train model
+        model = LinearRegression()
+        model.fit(X_train_scaled, y_train)
+        
+        # Make predictions
+        y_pred = model.predict(X_test_scaled)
+        
+        # Evaluate
+        mse = mean_squared_error(y_test, y_pred).compute()
+        print(f"Mean Squared Error: {mse:.6f}")
+        
+        return model
+    
+    def custom_delayed_computation(self):
+        """Custom delayed computations"""
+        
+        print("\n=== Custom Delayed Computations ===")
+        
+        @delayed
+        def expensive_computation(x, y):
+            """Simulate expensive computation"""
+            import time
+            time.sleep(0.01)  # Simulate work
+            return x ** 2 + y ** 2
+        
+        @delayed
+        def aggregate_results(results):
+            """Aggregate computation results"""
+            return sum(results)
+        
+        # Create computation graph
+        results = []
+        for i in range(10):
+            for j in range(5):
+                result = expensive_computation(i, j)
+                results.append(result)
+        
+        # Aggregate
+        final_result = aggregate_results(results)
+        
+        # Execute computation
+        computed_result = final_result.compute()
+        print(f"Computation result: {computed_result}")
+        
+        return computed_result
+    
+    def close(self):
+        """Close Dask client"""
+        self.client.close()
+
+# Example usage
+def dask_examples():
+    """Run Dask examples"""
+    
+    processor = DaskProcessor(n_workers=2)
+    
+    # Create sample data
+    df = processor.create_sample_dataframe(n_partitions=4)
+    
+    # DataFrame operations
+    transformed_df = processor.dataframe_operations(df)
+    
+    # Array operations
+    array_result = processor.array_operations()
+    
+    # Machine learning
+    ml_model = processor.machine_learning_example(df)
+    
+    # Custom delayed computations
+    delayed_result = processor.custom_delayed_computation()
+    
+    processor.close()
+
+# dask_examples()
+```
+
+## Ray Framework
+
+### Ray Core and Distributed Computing
+
+```python
+# Ray distributed computing
+import ray
+from ray import remote, get, put
+import numpy as np
+import pandas as pd
+import time
+from typing import List, Dict, Any
+import logging
+
+class RayProcessor:
+    """Ray distributed data processor"""
+    
+    def __init__(self, address: str = None, num_cpus: int = None):
+        """Initialize Ray"""
+        
+        if address:
+            ray.init(address=address)
+        else:
+            ray.init(num_cpus=num_cpus)
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Ray initialized: {ray.cluster_resources()}")
+    
+    def basic_remote_functions(self):
+        """Demonstrate basic Ray remote functions"""
+        
+        print("=== Basic Remote Functions ===")
+        
+        @remote
+        def square(x):
+            """Square a number"""
+            time.sleep(0.01)  # Simulate work
+            return x ** 2
+        
+        @remote
+        def sum_squares(numbers):
+            """Sum of squares"""
+            return sum(x ** 2 for x in numbers)
+        
+        # Execute remote functions
+        start_time = time.time()
+        
+        # Parallel execution
+        futures = [square.remote(i) for i in range(10)]
+        results = ray.get(futures)
+        
+        end_time = time.time()
+        
+        print(f"Square results: {results}")
+        print(f"Execution time: {end_time - start_time:.2f} seconds")
+        
+        # Nested remote calls
+        numbers = list(range(100))
+        chunk_size = 10
+        chunks = [numbers[i:i+chunk_size] for i in range(0, len(numbers), chunk_size)]
+        
+        chunk_futures = [sum_squares.remote(chunk) for chunk in chunks]
+        chunk_results = ray.get(chunk_futures)
+        total_sum = sum(chunk_results)
+        
+        print(f"Total sum of squares: {total_sum}")
+        
+        return results
+    
+    def remote_classes(self):
+        """Demonstrate Ray remote classes (actors)"""
+        
+        print("\n=== Remote Classes (Actors) ===")
+        
+        @remote
+        class Counter:
+            """Distributed counter actor"""
+            
+            def __init__(self, initial_value=0):
+                self.value = initial_value
+            
+            def increment(self, delta=1):
+                self.value += delta
+                return self.value
+            
+            def get_value(self):
+                return self.value
+        
+        @remote
+        class DataProcessor:
+            """Distributed data processor actor"""
+            
+            def __init__(self):
+                self.processed_count = 0
+            
+            def process_batch(self, data_batch):
+                """Process a batch of data"""
+                # Simulate processing
+                processed = [x * 2 + 1 for x in data_batch]
+                self.processed_count += len(data_batch)
+                return processed
+            
+            def get_stats(self):
+                return {'processed_count': self.processed_count}
+        
+        # Create actors
+        counter = Counter.remote(initial_value=10)
+        processors = [DataProcessor.remote() for _ in range(3)]
+        
+        # Use counter
+        counter.increment.remote(5)
+        counter_value = ray.get(counter.get_value.remote())
+        print(f"Counter value: {counter_value}")
+        
+        # Use data processors
+        data = list(range(300))
+        batch_size = 100
+        batches = [data[i:i+batch_size] for i in range(0, len(data), batch_size)]
+        
+        # Distribute work across processors
+        futures = []
+        for i, batch in enumerate(batches):
+            processor = processors[i % len(processors)]
+            future = processor.process_batch.remote(batch)
+            futures.append(future)
+        
+        # Get results
+        results = ray.get(futures)
+        flattened_results = [item for sublist in results for item in sublist]
+        
+        print(f"Processed {len(flattened_results)} items")
+        
+        return flattened_results
+    
+    def distributed_dataframe_processing(self):
+        """Distributed DataFrame processing with Ray"""
+        
+        print("\n=== Distributed DataFrame Processing ===")
+        
+        @remote
+        def create_dataframe_partition(start_idx, size):
+            """Create DataFrame partition"""
+            return pd.DataFrame({
+                'id': range(start_idx, start_idx + size),
+                'value': np.random.randn(size),
+                'category': np.random.choice(['A', 'B', 'C'], size)
+            })
+        
+        @remote
+        def process_partition(df_partition):
+            """Process DataFrame partition"""
+            # Add computed columns
+            df_partition = df_partition.copy()
+            df_partition['value_squared'] = df_partition['value'] ** 2
+            df_partition['value_abs'] = df_partition['value'].abs()
+            
+            # Aggregate statistics
+            stats = {
+                'count': len(df_partition),
+                'mean_value': df_partition['value'].mean(),
+                'std_value': df_partition['value'].std(),
+                'category_counts': df_partition['category'].value_counts().to_dict()
+            }
+            
+            return df_partition, stats
+        
+        # Create distributed DataFrame
+        num_partitions = 5
+        partition_size = 10000
+        
+        # Create partitions in parallel
+        partition_futures = [
+            create_dataframe_partition.remote(i * partition_size, partition_size)
+            for i in range(num_partitions)
+        ]
+        
+        partitions = ray.get(partition_futures)
+        
+        # Process partitions in parallel
+        process_futures = [process_partition.remote(partition) for partition in partitions]
+        results = ray.get(process_futures)
+        
+        # Separate processed DataFrames and stats
+        processed_partitions = [result[0] for result in results]
+        partition_stats = [result[1] for result in results]
+        
+        # Combine results
+        combined_df = pd.concat(processed_partitions, ignore_index=True)
+        
+        print(f"Combined DataFrame shape: {combined_df.shape}")
+        
+        # Aggregate statistics
+        total_count = sum(stats['count'] for stats in partition_stats)
+        overall_mean = sum(stats['mean_value'] * stats['count'] for stats in partition_stats) / total_count
+        
+        print(f"Total records: {total_count}")
+        print(f"Overall mean: {overall_mean:.4f}")
+        
+        return combined_df, partition_stats
+    
+    def hyperparameter_tuning(self):
+        """Hyperparameter tuning with Ray"""
+        
+        print("\n=== Hyperparameter Tuning ===")
+        
+        from sklearn.datasets import make_classification
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.model_selection import cross_val_score
+        
+        @remote
+        def train_and_evaluate(params, X, y):
+            """Train model with given parameters"""
+            model = RandomForestClassifier(**params, random_state=42)
+            scores = cross_val_score(model, X, y, cv=3, scoring='accuracy')
+            return {
+                'params': params,
+                'mean_score': scores.mean(),
+                'std_score': scores.std()
+            }
+        
+        # Generate sample data
+        X, y = make_classification(n_samples=1000, n_features=20, n_classes=2, random_state=42)
+        
+        # Put data in Ray object store for efficient sharing
+        X_ref = put(X)
+        y_ref = put(y)
+        
+        # Define parameter grid
+        param_grid = [
+            {'n_estimators': n_est, 'max_depth': max_d}
+            for n_est in [50, 100]
+            for max_d in [3, 5, None]
+        ]
+        
+        print(f"Testing {len(param_grid)} parameter combinations")
+        
+        # Parallel hyperparameter search
+        start_time = time.time()
+        
+        futures = [train_and_evaluate.remote(params, X_ref, y_ref) for params in param_grid]
+        results = ray.get(futures)
+        
+        end_time = time.time()
+        
+        # Find best parameters
+        best_result = max(results, key=lambda x: x['mean_score'])
+        
+        print(f"Hyperparameter tuning completed in {end_time - start_time:.2f} seconds")
+        print(f"Best parameters: {best_result['params']}")
+        print(f"Best score: {best_result['mean_score']:.4f}")
+        
+        return best_result
+    
+    def shutdown(self):
+        """Shutdown Ray"""
+        ray.shutdown()
+
+# Example usage
+def ray_examples():
+    """Run Ray examples"""
+    
+    processor = RayProcessor(num_cpus=4)
+    
+    # Basic remote functions
+    basic_results = processor.basic_remote_functions()
+    
+    # Remote classes (actors)
+    actor_results = processor.remote_classes()
+    
+    # Distributed DataFrame processing
+    df_results, stats = processor.distributed_dataframe_processing()
+    
+    # Hyperparameter tuning
+    best_params = processor.hyperparameter_tuning()
+    
+    processor.shutdown()
+
+# ray_examples()
+```
+
+## Framework Comparison
+
+### When to Use Dask vs Ray
+
+| Feature | Dask | Ray |
+|---------|------|-----|
+| **Primary Focus** | Data analytics, pandas/numpy scaling | General distributed computing, ML |
+| **API Style** | Familiar pandas/numpy APIs | Decorator-based remote functions |
+| **Scheduling** | Task graph optimization | Actor model + task scheduling |
+| **Memory Management** | Automatic spilling to disk | In-memory object store |
+| **ML Integration** | Dask-ML, scikit-learn compatible | Ray Tune, Ray Train, Ray Serve |
+| **Learning Curve** | Lower for pandas users | Moderate, new concepts |
+| **Use Cases** | ETL, analytics, time series | Hyperparameter tuning, RL, serving |
+
+## Best Practices
+
+### Dask Best Practices
+
+1. **Data Partitioning**
+   - Choose appropriate chunk sizes
+   - Avoid too many small partitions
+   - Use persist() for intermediate results
+
+2. **Memory Management**
+   - Monitor memory usage
+   - Use appropriate storage levels
+   - Configure spill-to-disk settings
+
+3. **Performance**
+   - Use vectorized operations
+   - Minimize data movement
+   - Profile with Dask dashboard
+
+### Ray Best Practices
+
+1. **Remote Functions**
+   - Use @ray.remote decorator appropriately
+   - Put large objects in object store
+   - Avoid returning large objects
+
+2. **Actors**
+   - Use actors for stateful computations
+   - Minimize actor communication
+   - Handle actor failures gracefully
+
+3. **Resource Management**
+   - Specify resource requirements
+   - Use placement groups for co-location
+   - Monitor cluster utilization
+
+## Common Use Cases
+
+### Dask Applications
+- **ETL pipelines** - Large-scale data transformation
+- **Time series analysis** - Financial and IoT data processing
+- **Geospatial analysis** - GIS and satellite data processing
+- **Scientific computing** - Climate and genomics research
+
+### Ray Applications
+- **Machine learning** - Distributed training and hyperparameter tuning
+- **Reinforcement learning** - Multi-agent simulations
+- **Model serving** - Real-time inference at scale
+- **Monte Carlo simulations** - Financial risk modeling
+
+## Summary
+
+Dask and Ray provide:
+
+- **Python-native scaling** - Familiar APIs for distributed computing
+- **Flexible deployment** - Single machine to large clusters
+- **Rich ecosystems** - Integration with popular libraries
+- **Different strengths** - Dask for analytics, Ray for ML/general computing
+
+Choose based on your use case:
+- **Dask** for pandas/numpy scaling and data analytics
+- **Ray** for machine learning and general distributed computing
+
+---
+
+**Next**: Learn about [Serverless Computing](/chapters/data-processing/serverless-computing) for event-driven data processing.

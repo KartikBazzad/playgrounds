@@ -1,0 +1,201 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+<div className="prose prose-lg max-w-none">
+  <div className="mb-8">
+    <nav className="text-sm text-gray-500 mb-4">
+      <span>Chapter 1: Introduction to Data Engineering</span>
+      <span className="mx-2">›</span>
+      <span>What is Data Engineering?</span>
+    </nav>
+  </div>
+
+# What is Data Engineering?
+
+Data engineering is the practice of designing, building, and maintaining systems that collect, store, and analyze data at scale. It forms the foundation of modern data-driven organizations by creating robust data pipelines that enable analytics, machine learning, and business intelligence.
+
+## Core Responsibilities
+
+Data engineers are responsible for:
+
+- **Data Pipeline Development**: Building automated systems to extract, transform, and load (ETL) data
+- **Data Architecture Design**: Creating scalable and reliable data infrastructure
+- **Data Quality Assurance**: Ensuring data accuracy, completeness, and consistency
+- **Performance Optimization**: Tuning systems for optimal throughput and latency
+- **Data Governance**: Implementing security, privacy, and compliance measures
+
+## The Data Engineering Process
+
+<MermaidDiagram chart={`
+graph LR
+    A[Data Sources] --> B[Ingestion Layer]
+    B --> C[Processing Layer]
+    C --> D[Storage Layer]
+    D --> E[Analytics Layer]
+    E --> F[Visualization]
+    
+    B --> G[Stream Processing]
+    G --> D
+    
+    style A fill:#e1f5fe
+    style F fill:#f3e5f5
+    style D fill:#e8f5e8
+`} />
+
+## Key Technologies
+
+### Programming Languages
+```python
+# Python - Most popular for data engineering
+import pandas as pd
+import numpy as np
+from sqlalchemy import create_engine
+
+# Example: Simple data transformation
+def clean_data(df):
+    """Clean and transform raw data"""
+    df = df.dropna()  # Remove null values
+    df['created_at'] = pd.to_datetime(df['created_at'])
+    return df
+
+# Process data
+raw_data = pd.read_csv('raw_data.csv')
+clean_data = clean_data(raw_data)
+```
+
+```sql
+-- SQL - Essential for data manipulation
+SELECT 
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(total_amount) as total_spent,
+    AVG(total_amount) as avg_order_value
+FROM orders 
+WHERE order_date >= '2024-01-01'
+GROUP BY customer_id
+HAVING COUNT(*) > 5;
+```
+
+### Big Data Frameworks
+
+**Apache Spark** - Distributed computing framework
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, sum, avg
+
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("DataProcessing") \
+    .getOrCreate()
+
+# Read data
+df = spark.read.parquet("s3://bucket/data/")
+
+# Transform data
+result = df.groupBy("category") \
+    .agg(
+        sum("sales").alias("total_sales"),
+        avg("price").alias("avg_price")
+    )
+
+# Write results
+result.write.mode("overwrite").parquet("s3://bucket/results/")
+```
+
+## Data Engineering vs Other Roles
+
+| Aspect | Data Engineer | Data Scientist | Data Analyst |
+|--------|---------------|----------------|--------------|
+| **Focus** | Infrastructure & Pipelines | Models & Algorithms | Insights & Reports |
+| **Skills** | Programming, Systems Design | Statistics, ML | SQL, Visualization |
+| **Tools** | Spark, Kafka, Airflow | Python, R, Jupyter | Tableau, Power BI |
+| **Output** | Data Pipelines | ML Models | Dashboards |
+
+## Modern Data Stack Components
+
+### Data Sources
+- **Transactional Databases**: PostgreSQL, MySQL
+- **APIs**: REST, GraphQL endpoints
+- **Files**: CSV, JSON, Parquet
+- **Streaming**: Kafka, Kinesis
+
+### Processing Engines
+- **Batch Processing**: Apache Spark, Hadoop
+- **Stream Processing**: Apache Flink, Kafka Streams
+- **Serverless**: AWS Lambda, Google Cloud Functions
+
+### Storage Solutions
+- **Data Warehouses**: Snowflake, BigQuery, Redshift
+- **Data Lakes**: S3, HDFS, Azure Data Lake
+- **NoSQL**: MongoDB, Cassandra, DynamoDB
+
+## Industry Applications
+
+### E-commerce
+```python
+# Real-time recommendation pipeline
+def process_user_event(event):
+    """Process user interaction events"""
+    user_id = event['user_id']
+    product_id = event['product_id']
+    action = event['action']  # view, cart, purchase
+    
+    # Update user profile
+    update_user_preferences(user_id, product_id, action)
+    
+    # Trigger recommendation update
+    if action == 'purchase':
+        update_recommendations(user_id)
+    
+    return {"status": "processed", "user_id": user_id}
+```
+
+### Financial Services
+- **Fraud Detection**: Real-time transaction monitoring
+- **Risk Analytics**: Credit scoring and portfolio analysis
+- **Regulatory Reporting**: Compliance data aggregation
+
+### Healthcare
+- **Patient Data Integration**: EHR system consolidation
+- **Clinical Analytics**: Treatment outcome analysis
+- **Drug Discovery**: Genomic data processing
+
+## Career Path and Skills
+
+### Technical Skills
+1. **Programming**: Python, Scala, Java
+2. **Databases**: SQL, NoSQL systems
+3. **Cloud Platforms**: AWS, GCP, Azure
+4. **Orchestration**: Airflow, Prefect, Dagster
+5. **Containerization**: Docker, Kubernetes
+
+### Soft Skills
+- **Problem Solving**: Debugging complex data issues
+- **Communication**: Explaining technical concepts to stakeholders
+- **Project Management**: Coordinating data initiatives
+
+## Getting Started
+
+### Learning Path
+1. **Foundation**: SQL, Python basics
+2. **Data Processing**: Pandas, Spark fundamentals
+3. **Cloud Services**: AWS/GCP data services
+4. **Orchestration**: Workflow management tools
+5. **Advanced Topics**: Stream processing, data modeling
+
+### Practice Projects
+- Build an ETL pipeline with Python and PostgreSQL
+- Create a real-time dashboard using streaming data
+- Design a data warehouse schema for an e-commerce business
+- Implement data quality monitoring and alerting
+
+## Summary
+
+Data engineering is a critical discipline that enables organizations to harness the power of their data. By building robust, scalable data infrastructure, data engineers create the foundation for analytics, machine learning, and data-driven decision making.
+
+The field continues to evolve with new technologies and methodologies, making it an exciting career path for those interested in working with data at scale. Success in data engineering requires a combination of technical skills, system design thinking, and business understanding.
+
+---
+
+**Next**: Learn about [Data Engineering vs Data Science](/chapters/introduction/data-engineering-vs-data-science) to understand the key differences between these related fields.
+
+</div>

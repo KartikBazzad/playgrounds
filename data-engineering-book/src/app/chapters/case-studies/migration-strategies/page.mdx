@@ -1,0 +1,645 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Migration Strategies
+
+This case study explores comprehensive strategies for migrating large-scale data systems, including database migrations, cloud migrations, and platform modernization. It covers planning, execution, validation, and rollback strategies for enterprise-grade data migrations.
+
+## Data Migration Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Source Systems"
+        SS1[Legacy Database]
+        SS2[On-premise Data Warehouse]
+        SS3[File Systems]
+        SS4[Legacy Applications]
+    end
+    
+    subgraph "Migration Pipeline"
+        MP1[Data Assessment]
+        MP2[Schema Mapping]
+        MP3[ETL Pipeline]
+        MP4[Data Validation]
+    end
+    
+    subgraph "Target Systems"
+        TS1[Cloud Database]
+        TS2[Modern Data Warehouse]
+        TS3[Data Lake]
+        TS4[Cloud Applications]
+    end
+    
+    subgraph "Migration Tools"
+        MT1[AWS DMS]
+        MT2[Azure Data Factory]
+        MT3[Custom Scripts]
+        MT4[Third-party Tools]
+    end
+    
+    subgraph "Validation & Monitoring"
+        VM1[Data Quality Checks]
+        VM2[Performance Testing]
+        VM3[Business Validation]
+        VM4[Rollback Procedures]
+    end
+    
+    SS1 --> MP1
+    SS2 --> MP2
+    SS3 --> MP3
+    SS4 --> MP4
+    
+    MP1 --> MT1
+    MP2 --> MT2
+    MP3 --> MT3
+    MP4 --> MT4
+    
+    MT1 --> TS1
+    MT2 --> TS2
+    MT3 --> TS3
+    MT4 --> TS4
+    
+    TS1 --> VM1
+    TS2 --> VM2
+    TS3 --> VM3
+    TS4 --> VM4
+    
+    style SS1 fill:#e3f2fd
+    style MP1 fill:#e8f5e8
+    style TS1 fill:#fff3e0
+    style MT1 fill:#f3e5f5
+    style VM1 fill:#fce4ec
+`} />
+
+## Migration Framework Implementation
+
+### Core Migration Components
+
+```python
+# Data Migration Framework
+import os
+import json
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass, field
+from enum import Enum
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+class MigrationPhase(Enum):
+    """Migration phase enumeration"""
+    PLANNING = "planning"
+    ASSESSMENT = "assessment"
+    PREPARATION = "preparation"
+    EXECUTION = "execution"
+    VALIDATION = "validation"
+    CUTOVER = "cutover"
+    COMPLETED = "completed"
+
+class MigrationType(Enum):
+    """Migration type enumeration"""
+    DATABASE = "database"
+    DATA_WAREHOUSE = "data_warehouse"
+    FILE_SYSTEM = "file_system"
+    CLOUD = "cloud"
+
+class ValidationStatus(Enum):
+    """Validation status enumeration"""
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+    WARNING = "warning"
+
+@dataclass
+class DataSource:
+    """Data source configuration"""
+    source_id: str
+    name: str
+    source_type: str
+    connection_config: Dict[str, Any]
+    schema_info: Dict[str, Any]
+    estimated_size_gb: float
+    priority: int = 1
+
+@dataclass
+class DataTarget:
+    """Data target configuration"""
+    target_id: str
+    name: str
+    target_type: str
+    connection_config: Dict[str, Any]
+    schema_mapping: Dict[str, Any]
+    performance_requirements: Dict[str, Any]
+
+@dataclass
+class MigrationTask:
+    """Individual migration task"""
+    task_id: str
+    name: str
+    migration_type: MigrationType
+    source: DataSource
+    target: DataTarget
+    phase: MigrationPhase
+    estimated_duration_hours: float
+    actual_duration_hours: Optional[float] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    status: str = "pending"
+    error_message: Optional[str] = None
+    validation_results: List[Dict[str, Any]] = field(default_factory=list)
+    
+    def start_task(self):
+        """Start migration task"""
+        self.started_at = datetime.now()
+        self.status = "running"
+        self.phase = MigrationPhase.EXECUTION
+    
+    def complete_task(self, success: bool, error_message: str = None):
+        """Complete migration task"""
+        self.completed_at = datetime.now()
+        self.status = "completed" if success else "failed"
+        self.error_message = error_message
+        if self.started_at:
+            self.actual_duration_hours = (self.completed_at - self.started_at).total_seconds() / 3600
+
+class DataAssessment:
+    """Data assessment and profiling"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def assess_source_data(self, source: DataSource) -> Dict[str, Any]:
+        """Assess source data characteristics"""
+        try:
+            assessment = {
+                'source_id': source.source_id,
+                'assessment_date': datetime.now().isoformat(),
+                'data_profile': {},
+                'quality_metrics': {},
+                'complexity_score': 0,
+                'migration_risks': []
+            }
+            
+            if source.source_type == 'postgresql':
+                assessment.update(self._assess_database_source(source))
+            elif source.source_type == 'file_system':
+                assessment.update(self._assess_file_system_source(source))
+            else:
+                assessment.update(self._assess_generic_source(source))
+            
+            return assessment
+            
+        except Exception as e:
+            self.logger.error(f"Error assessing source data: {e}")
+            return {'source_id': source.source_id, 'error': str(e)}
+    
+    def _assess_database_source(self, source: DataSource) -> Dict[str, Any]:
+        """Assess database source"""
+        assessment = {
+            'data_profile': {
+                'total_tables': np.random.randint(50, 500),
+                'total_rows': np.random.randint(1000000, 100000000),
+                'total_size_gb': source.estimated_size_gb,
+                'schema_complexity': np.random.choice(['low', 'medium', 'high'])
+            },
+            'quality_metrics': {
+                'null_percentage': np.random.uniform(0.01, 0.15),
+                'duplicate_percentage': np.random.uniform(0.001, 0.05),
+                'data_consistency_score': np.random.uniform(0.85, 0.99)
+            },
+            'complexity_score': np.random.randint(3, 8),
+            'migration_risks': []
+        }
+        
+        if assessment['complexity_score'] > 6:
+            assessment['migration_risks'].extend([
+                'High schema complexity',
+                'Large data volume'
+            ])
+        
+        return assessment
+    
+    def _assess_file_system_source(self, source: DataSource) -> Dict[str, Any]:
+        """Assess file system source"""
+        assessment = {
+            'data_profile': {
+                'total_files': np.random.randint(100, 10000),
+                'total_size_gb': source.estimated_size_gb,
+                'file_types': ['csv', 'json', 'parquet'],
+                'largest_file_gb': np.random.uniform(0.1, 10.0)
+            },
+            'quality_metrics': {
+                'corrupted_files_percentage': np.random.uniform(0.001, 0.02),
+                'schema_consistency_score': np.random.uniform(0.7, 0.95)
+            },
+            'complexity_score': np.random.randint(2, 6),
+            'migration_risks': []
+        }
+        
+        if assessment['complexity_score'] > 4:
+            assessment['migration_risks'].extend([
+                'Mixed file formats',
+                'Large file sizes'
+            ])
+        
+        return assessment
+    
+    def _assess_generic_source(self, source: DataSource) -> Dict[str, Any]:
+        """Generic source assessment"""
+        return {
+            'data_profile': {
+                'estimated_size_gb': source.estimated_size_gb,
+                'complexity': 'medium'
+            },
+            'quality_metrics': {
+                'overall_quality_score': 0.85
+            },
+            'complexity_score': 5,
+            'migration_risks': ['Unknown source type']
+        }
+
+class MigrationExecutor:
+    """Migration execution engine"""
+    
+    def __init__(self, max_parallel_tasks: int = 4):
+        self.max_parallel_tasks = max_parallel_tasks
+        self.active_tasks: Dict[str, MigrationTask] = {}
+        self.completed_tasks: Dict[str, MigrationTask] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def execute_migration_task(self, task: MigrationTask) -> bool:
+        """Execute single migration task"""
+        try:
+            task.start_task()
+            self.active_tasks[task.task_id] = task
+            
+            self.logger.info(f"Starting migration task: {task.name}")
+            
+            # Simulate migration execution
+            success = self._simulate_migration_execution(task)
+            
+            task.complete_task(success)
+            
+            if task.task_id in self.active_tasks:
+                del self.active_tasks[task.task_id]
+            self.completed_tasks[task.task_id] = task
+            
+            return success
+            
+        except Exception as e:
+            task.complete_task(False, str(e))
+            self.logger.error(f"Migration task error: {task.name} - {e}")
+            return False
+    
+    def _simulate_migration_execution(self, task: MigrationTask) -> bool:
+        """Simulate migration execution"""
+        try:
+            # Simulate processing time based on data size
+            import time
+            processing_time = min(task.source.estimated_size_gb / 1000, 0.5)  # Max 0.5 seconds
+            time.sleep(processing_time)
+            
+            # Simulate success/failure based on complexity
+            failure_rate = 0.05 + (task.source.estimated_size_gb / 10000)  # Higher failure for larger data
+            return np.random.random() > failure_rate
+            
+        except Exception as e:
+            self.logger.error(f"Simulation error: {e}")
+            return False
+    
+    def execute_parallel_migrations(self, tasks: List[MigrationTask]) -> Dict[str, bool]:
+        """Execute multiple migration tasks in parallel"""
+        results = {}
+        
+        with ThreadPoolExecutor(max_workers=self.max_parallel_tasks) as executor:
+            future_to_task = {
+                executor.submit(self.execute_migration_task, task): task 
+                for task in tasks
+            }
+            
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    success = future.result()
+                    results[task.task_id] = success
+                except Exception as e:
+                    self.logger.error(f"Task {task.task_id} exception: {e}")
+                    results[task.task_id] = False
+        
+        return results
+
+class DataValidator:
+    """Data validation for migration"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def validate_migration(self, task: MigrationTask) -> List[Dict[str, Any]]:
+        """Validate migration results"""
+        validation_results = []
+        
+        try:
+            # Row count validation
+            row_count_result = self._validate_row_counts(task)
+            validation_results.append(row_count_result)
+            
+            # Data integrity validation
+            integrity_result = self._validate_data_integrity(task)
+            validation_results.append(integrity_result)
+            
+            # Performance validation
+            performance_result = self._validate_performance(task)
+            validation_results.append(performance_result)
+            
+            task.validation_results = validation_results
+            return validation_results
+            
+        except Exception as e:
+            self.logger.error(f"Validation error for task {task.task_id}: {e}")
+            return [{
+                'validation_type': 'error',
+                'status': ValidationStatus.FAILED.value,
+                'message': str(e)
+            }]
+    
+    def _validate_row_counts(self, task: MigrationTask) -> Dict[str, Any]:
+        """Validate row counts between source and target"""
+        source_count = np.random.randint(10000, 1000000)
+        target_count = source_count + np.random.randint(-10, 11)
+        
+        variance_percentage = abs(target_count - source_count) / source_count * 100
+        
+        if variance_percentage <= 0.1:
+            status = ValidationStatus.PASSED
+            message = f"Row counts match: {source_count} -> {target_count}"
+        elif variance_percentage <= 1.0:
+            status = ValidationStatus.WARNING
+            message = f"Small variance: {variance_percentage:.2f}%"
+        else:
+            status = ValidationStatus.FAILED
+            message = f"Significant variance: {variance_percentage:.2f}%"
+        
+        return {
+            'validation_type': 'row_count',
+            'status': status.value,
+            'message': message,
+            'variance_percentage': variance_percentage
+        }
+    
+    def _validate_data_integrity(self, task: MigrationTask) -> Dict[str, Any]:
+        """Validate data integrity"""
+        integrity_score = np.random.uniform(0.95, 1.0)
+        
+        if integrity_score >= 0.99:
+            status = ValidationStatus.PASSED
+            message = f"Data integrity excellent: {integrity_score:.3f}"
+        elif integrity_score >= 0.95:
+            status = ValidationStatus.WARNING
+            message = f"Data integrity good: {integrity_score:.3f}"
+        else:
+            status = ValidationStatus.FAILED
+            message = f"Data integrity issues: {integrity_score:.3f}"
+        
+        return {
+            'validation_type': 'data_integrity',
+            'status': status.value,
+            'message': message,
+            'integrity_score': integrity_score
+        }
+    
+    def _validate_performance(self, task: MigrationTask) -> Dict[str, Any]:
+        """Validate performance requirements"""
+        query_response_time = np.random.uniform(0.1, 2.0)
+        throughput_qps = np.random.uniform(100, 1000)
+        
+        performance_requirements = task.target.performance_requirements
+        max_response_time = performance_requirements.get('max_response_time_seconds', 1.0)
+        min_throughput = performance_requirements.get('min_throughput_qps', 200)
+        
+        performance_issues = []
+        if query_response_time > max_response_time:
+            performance_issues.append(f"Response time too high: {query_response_time:.2f}s")
+        
+        if throughput_qps < min_throughput:
+            performance_issues.append(f"Throughput too low: {throughput_qps:.0f} QPS")
+        
+        if not performance_issues:
+            status = ValidationStatus.PASSED
+            message = "Performance requirements met"
+        else:
+            status = ValidationStatus.FAILED
+            message = f"Performance issues: {'; '.join(performance_issues)}"
+        
+        return {
+            'validation_type': 'performance',
+            'status': status.value,
+            'message': message,
+            'response_time_seconds': query_response_time,
+            'throughput_qps': throughput_qps
+        }
+
+class MigrationOrchestrator:
+    """Main migration orchestration system"""
+    
+    def __init__(self):
+        self.assessment = DataAssessment()
+        self.executor = MigrationExecutor()
+        self.validator = DataValidator()
+        self.migration_tasks: Dict[str, MigrationTask] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def plan_migration(self, sources: List[DataSource], 
+                      targets: List[DataTarget]) -> List[MigrationTask]:
+        """Plan migration tasks"""
+        tasks = []
+        
+        for i, (source, target) in enumerate(zip(sources, targets)):
+            # Assess source data
+            assessment = self.assessment.assess_source_data(source)
+            
+            # Estimate duration
+            base_duration = source.estimated_size_gb * 0.1
+            complexity_multiplier = assessment.get('complexity_score', 5) / 5
+            estimated_duration = base_duration * complexity_multiplier
+            
+            # Create migration task
+            task = MigrationTask(
+                task_id=f"migration_task_{i+1}",
+                name=f"Migrate {source.name} to {target.name}",
+                migration_type=MigrationType.DATABASE,
+                source=source,
+                target=target,
+                phase=MigrationPhase.PLANNING,
+                estimated_duration_hours=estimated_duration
+            )
+            
+            tasks.append(task)
+            self.migration_tasks[task.task_id] = task
+        
+        self.logger.info(f"Planned {len(tasks)} migration tasks")
+        return tasks
+    
+    def execute_migration_plan(self, tasks: List[MigrationTask]) -> Dict[str, Any]:
+        """Execute migration plan"""
+        
+        # Sort tasks by priority
+        sorted_tasks = sorted(tasks, key=lambda t: (t.source.priority, t.estimated_duration_hours))
+        
+        # Execute tasks
+        results = self.executor.execute_parallel_migrations(sorted_tasks)
+        
+        # Validate completed tasks
+        validation_summary = {'passed': 0, 'failed': 0, 'warnings': 0}
+        
+        for task_id, success in results.items():
+            if success:
+                task = self.migration_tasks[task_id]
+                validation_results = self.validator.validate_migration(task)
+                
+                for result in validation_results:
+                    if result['status'] == ValidationStatus.PASSED.value:
+                        validation_summary['passed'] += 1
+                    elif result['status'] == ValidationStatus.FAILED.value:
+                        validation_summary['failed'] += 1
+                    else:
+                        validation_summary['warnings'] += 1
+        
+        # Generate summary
+        successful_tasks = sum(1 for success in results.values() if success)
+        total_tasks = len(results)
+        
+        return {
+            'total_tasks': total_tasks,
+            'successful_tasks': successful_tasks,
+            'failed_tasks': total_tasks - successful_tasks,
+            'success_rate': successful_tasks / total_tasks if total_tasks > 0 else 0,
+            'validation_summary': validation_summary,
+            'task_results': results
+        }
+
+# Example migration scenario
+def create_sample_migration_scenario():
+    """Create sample migration scenario"""
+    
+    sources = [
+        DataSource(
+            source_id="legacy_db_1",
+            name="Legacy PostgreSQL Database",
+            source_type="postgresql",
+            connection_config={"host": "legacy-db.company.com"},
+            schema_info={"tables": 150},
+            estimated_size_gb=500.0,
+            priority=1
+        ),
+        DataSource(
+            source_id="file_system_1",
+            name="Legacy File System",
+            source_type="file_system",
+            connection_config={"path": "/legacy/data"},
+            schema_info={"file_count": 10000},
+            estimated_size_gb=200.0,
+            priority=2
+        )
+    ]
+    
+    targets = [
+        DataTarget(
+            target_id="cloud_db_1",
+            name="AWS RDS PostgreSQL",
+            target_type="postgresql",
+            connection_config={"host": "rds.amazonaws.com"},
+            schema_mapping={"direct_mapping": True},
+            performance_requirements={"max_response_time_seconds": 0.5, "min_throughput_qps": 500}
+        ),
+        DataTarget(
+            target_id="s3_data_lake",
+            name="AWS S3 Data Lake",
+            target_type="s3",
+            connection_config={"bucket": "company-data-lake"},
+            schema_mapping={"format": "parquet"},
+            performance_requirements={"max_response_time_seconds": 2.0, "min_throughput_qps": 100}
+        )
+    ]
+    
+    return sources, targets
+
+def example_data_migration():
+    """Example of comprehensive data migration"""
+    
+    print("=== DATA MIGRATION CASE STUDY ===")
+    
+    # Create migration scenario
+    sources, targets = create_sample_migration_scenario()
+    
+    # Initialize orchestrator
+    orchestrator = MigrationOrchestrator()
+    
+    # Plan migration
+    migration_tasks = orchestrator.plan_migration(sources, targets)
+    
+    print(f"Planned {len(migration_tasks)} migration tasks:")
+    for task in migration_tasks:
+        print(f"  - {task.name}: {task.estimated_duration_hours:.1f} hours estimated")
+    
+    # Execute migration
+    print(f"\nExecuting migration plan...")
+    execution_summary = orchestrator.execute_migration_plan(migration_tasks)
+    
+    print(f"\n=== MIGRATION RESULTS ===")
+    print(f"Total tasks: {execution_summary['total_tasks']}")
+    print(f"Successful: {execution_summary['successful_tasks']}")
+    print(f"Failed: {execution_summary['failed_tasks']}")
+    print(f"Success rate: {execution_summary['success_rate']:.1%}")
+    
+    print(f"\nValidation Summary:")
+    vs = execution_summary['validation_summary']
+    print(f"  Passed: {vs['passed']}")
+    print(f"  Failed: {vs['failed']}")
+    print(f"  Warnings: {vs['warnings']}")
+    
+    return orchestrator, execution_summary
+
+# orchestrator, summary = example_data_migration()
+```
+
+## Migration Best Practices
+
+### Planning and Strategy
+
+1. **Comprehensive Assessment**
+   - Analyze source system dependencies and constraints
+   - Assess data quality and identify cleanup requirements
+   - Evaluate performance and scalability requirements
+   - Plan for minimal downtime and business continuity
+
+2. **Risk Mitigation**
+   - Implement comprehensive backup and rollback procedures
+   - Use parallel run strategies for validation
+   - Plan for data synchronization during cutover
+   - Establish clear success criteria and validation checkpoints
+
+3. **Execution Strategy**
+   - Use phased migration approach for large systems
+   - Implement automated validation and monitoring
+   - Plan for performance testing and optimization
+   - Establish clear communication and escalation procedures
+
+## Summary
+
+Data Migration Strategies provide:
+
+- **Comprehensive Planning** - Assessment, risk analysis, and execution planning
+- **Automated Execution** - Parallel task execution with monitoring and validation
+- **Quality Assurance** - Multi-layer validation including data integrity and performance
+- **Risk Management** - Rollback procedures and continuous monitoring
+
+Key components:
+- Data assessment and profiling framework
+- Migration task orchestration and execution
+- Comprehensive validation and quality checks
+- Performance monitoring and optimization
+
+---
+
+**Next**: Learn about [Scaling Data Systems](/chapters/case-studies/scaling-systems) for handling growth and performance optimization.

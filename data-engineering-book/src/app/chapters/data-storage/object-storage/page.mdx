@@ -1,0 +1,530 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Object Storage
+
+Object storage is a data storage architecture that manages data as objects, unlike traditional file systems. Each object contains data, metadata, and a unique identifier, making it ideal for storing unstructured data at massive scale.
+
+## Object Storage Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Client Applications"
+        CA1[Web Applications]
+        CA2[Mobile Apps]
+        CA3[Analytics Tools]
+        CA4[Backup Systems]
+    end
+    
+    subgraph "Object Storage Service"
+        OSS1[REST API Gateway]
+        OSS2[Authentication]
+        OSS3[Metadata Management]
+        OSS4[Object Management]
+    end
+    
+    subgraph "Storage Layer"
+        SL1[Bucket/Container 1]
+        SL2[Bucket/Container 2]
+        SL3[Bucket/Container 3]
+    end
+    
+    subgraph "Infrastructure"
+        SI1[Distributed Storage]
+        SI2[Replication]
+        SI3[Durability & Availability]
+    end
+    
+    CA1 --> OSS1
+    CA2 --> OSS1
+    CA3 --> OSS1
+    CA4 --> OSS1
+    
+    OSS1 --> OSS2
+    OSS2 --> OSS3
+    OSS3 --> OSS4
+    
+    OSS4 --> SL1
+    OSS4 --> SL2
+    OSS4 --> SL3
+    
+    SL1 --> SI1
+    SL2 --> SI2
+    SL3 --> SI3
+    
+    style OSS1 fill:#e3f2fd
+    style SL1 fill:#e8f5e8
+    style SI1 fill:#fff3e0
+`} />
+
+## AWS S3 Implementation
+
+### S3 Object Storage Manager
+
+```python
+# AWS S3 object storage implementation
+import boto3
+import json
+import hashlib
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import mimetypes
+
+class S3ObjectStorageManager:
+    def __init__(self, aws_config: Dict[str, str]):
+        self.s3_client = boto3.client('s3', **aws_config)
+        self.s3_resource = boto3.resource('s3', **aws_config)
+        self.logger = logging.getLogger(__name__)
+    
+    def create_bucket(self, bucket_name: str, region: str = 'us-west-2'):
+        """Create S3 bucket with best practices"""
+        try:
+            # Create bucket
+            if region == 'us-east-1':
+                self.s3_client.create_bucket(Bucket=bucket_name)
+            else:
+                self.s3_client.create_bucket(
+                    Bucket=bucket_name,
+                    CreateBucketConfiguration={'LocationConstraint': region}
+                )
+            
+            # Enable versioning
+            self.s3_client.put_bucket_versioning(
+                Bucket=bucket_name,
+                VersioningConfiguration={'Status': 'Enabled'}
+            )
+            
+            # Enable encryption
+            self.s3_client.put_bucket_encryption(
+                Bucket=bucket_name,
+                ServerSideEncryptionConfiguration={
+                    'Rules': [{
+                        'ApplyServerSideEncryptionByDefault': {
+                            'SSEAlgorithm': 'AES256'
+                        }
+                    }]
+                }
+            )
+            
+            # Block public access
+            self.s3_client.put_public_access_block(
+                Bucket=bucket_name,
+                PublicAccessBlockConfiguration={
+                    'BlockPublicAcls': True,
+                    'IgnorePublicAcls': True,
+                    'BlockPublicPolicy': True,
+                    'RestrictPublicBuckets': True
+                }
+            )
+            
+            self.logger.info(f"Bucket created: {bucket_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create bucket: {e}")
+            return False
+    
+    def upload_object(self, bucket_name: str, object_key: str, 
+                     file_path: str = None, file_data: bytes = None,
+                     metadata: Dict[str, str] = None, 
+                     storage_class: str = 'STANDARD'):
+        """Upload object with metadata"""
+        try:
+            upload_params = {
+                'Bucket': bucket_name,
+                'Key': object_key,
+                'StorageClass': storage_class
+            }
+            
+            if metadata:
+                upload_params['Metadata'] = metadata
+            
+            if file_path:
+                content_type, _ = mimetypes.guess_type(file_path)
+                if content_type:
+                    upload_params['ContentType'] = content_type
+                
+                self.s3_client.upload_file(file_path, **upload_params)
+            elif file_data:
+                upload_params['Body'] = file_data
+                self.s3_client.put_object(**upload_params)
+            
+            self.logger.info(f"Object uploaded: {object_key}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to upload: {e}")
+            return False
+    
+    def multipart_upload(self, bucket_name: str, object_key: str, 
+                        file_path: str, part_size: int = 100 * 1024 * 1024):
+        """Upload large files using multipart upload"""
+        try:
+            # Initialize multipart upload
+            response = self.s3_client.create_multipart_upload(
+                Bucket=bucket_name, Key=object_key
+            )
+            upload_id = response['UploadId']
+            
+            parts = []
+            part_number = 1
+            
+            with open(file_path, 'rb') as f:
+                while True:
+                    data = f.read(part_size)
+                    if not data:
+                        break
+                    
+                    part_response = self.s3_client.upload_part(
+                        Bucket=bucket_name,
+                        Key=object_key,
+                        PartNumber=part_number,
+                        UploadId=upload_id,
+                        Body=data
+                    )
+                    
+                    parts.append({
+                        'ETag': part_response['ETag'],
+                        'PartNumber': part_number
+                    })
+                    part_number += 1
+            
+            # Complete upload
+            self.s3_client.complete_multipart_upload(
+                Bucket=bucket_name,
+                Key=object_key,
+                UploadId=upload_id,
+                MultipartUpload={'Parts': parts}
+            )
+            
+            self.logger.info(f"Multipart upload completed: {object_key}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Multipart upload failed: {e}")
+            return False
+    
+    def setup_lifecycle_policies(self, bucket_name: str, policies: List[Dict]):
+        """Set up lifecycle policies for cost optimization"""
+        lifecycle_rules = []
+        
+        for policy in policies:
+            rule = {
+                'ID': policy['id'],
+                'Status': 'Enabled',
+                'Filter': {'Prefix': policy.get('prefix', '')},
+                'Transitions': []
+            }
+            
+            for transition in policy.get('transitions', []):
+                rule['Transitions'].append({
+                    'Days': transition['days'],
+                    'StorageClass': transition['storage_class']
+                })
+            
+            if 'expiration_days' in policy:
+                rule['Expiration'] = {'Days': policy['expiration_days']}
+            
+            lifecycle_rules.append(rule)
+        
+        try:
+            self.s3_client.put_bucket_lifecycle_configuration(
+                Bucket=bucket_name,
+                LifecycleConfiguration={'Rules': lifecycle_rules}
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to set lifecycle: {e}")
+            return False
+    
+    def generate_presigned_url(self, bucket_name: str, object_key: str, 
+                             expiration: int = 3600):
+        """Generate presigned URL for temporary access"""
+        try:
+            url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket_name, 'Key': object_key},
+                ExpiresIn=expiration
+            )
+            return url
+        except Exception as e:
+            self.logger.error(f"Failed to generate URL: {e}")
+            return None
+    
+    def calculate_storage_costs(self, bucket_name: str):
+        """Calculate storage costs by storage class"""
+        try:
+            storage_stats = {
+                'STANDARD': {'count': 0, 'size': 0},
+                'STANDARD_IA': {'count': 0, 'size': 0},
+                'GLACIER': {'count': 0, 'size': 0},
+                'DEEP_ARCHIVE': {'count': 0, 'size': 0}
+            }
+            
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            for page in paginator.paginate(Bucket=bucket_name):
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        storage_class = obj.get('StorageClass', 'STANDARD')
+                        if storage_class in storage_stats:
+                            storage_stats[storage_class]['count'] += 1
+                            storage_stats[storage_class]['size'] += obj['Size']
+            
+            # Calculate costs (simplified pricing per GB/month)
+            pricing = {
+                'STANDARD': 0.023,
+                'STANDARD_IA': 0.0125,
+                'GLACIER': 0.004,
+                'DEEP_ARCHIVE': 0.00099
+            }
+            
+            total_cost = 0
+            for storage_class, stats in storage_stats.items():
+                size_gb = stats['size'] / (1024**3)
+                cost = size_gb * pricing[storage_class]
+                stats['size_gb'] = size_gb
+                stats['monthly_cost'] = cost
+                total_cost += cost
+            
+            return {
+                'storage_breakdown': storage_stats,
+                'total_monthly_cost': total_cost,
+                'total_objects': sum(s['count'] for s in storage_stats.values())
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Cost calculation failed: {e}")
+            return {}
+
+# Usage example
+aws_config = {'region_name': 'us-west-2'}
+s3_manager = S3ObjectStorageManager(aws_config)
+
+# Create bucket
+s3_manager.create_bucket('my-storage-bucket')
+
+# Upload object
+s3_manager.upload_object(
+    'my-storage-bucket',
+    'documents/report.pdf',
+    file_path='/path/to/report.pdf',
+    metadata={'department': 'analytics'},
+    storage_class='STANDARD'
+)
+
+# Set up lifecycle policies
+policies = [{
+    'id': 'ArchiveOldData',
+    'prefix': 'logs/',
+    'transitions': [
+        {'days': 30, 'storage_class': 'STANDARD_IA'},
+        {'days': 90, 'storage_class': 'GLACIER'}
+    ],
+    'expiration_days': 2555
+}]
+
+s3_manager.setup_lifecycle_policies('my-storage-bucket', policies)
+
+# Generate presigned URL
+url = s3_manager.generate_presigned_url(
+    'my-storage-bucket', 
+    'documents/report.pdf'
+)
+
+# Calculate costs
+costs = s3_manager.calculate_storage_costs('my-storage-bucket')
+print(f"Monthly cost: ${costs['total_monthly_cost']:.2f}")
+```
+
+## Azure Blob Storage
+
+### Azure Implementation
+
+```python
+# Azure Blob Storage implementation
+from azure.storage.blob import BlobServiceClient
+import logging
+
+class AzureBlobManager:
+    def __init__(self, connection_string: str):
+        self.client = BlobServiceClient.from_connection_string(connection_string)
+        self.logger = logging.getLogger(__name__)
+    
+    def create_container(self, container_name: str):
+        """Create blob container"""
+        try:
+            self.client.create_container(name=container_name)
+            self.logger.info(f"Container created: {container_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create container: {e}")
+            return False
+    
+    def upload_blob(self, container_name: str, blob_name: str, 
+                   data: bytes, metadata: Dict[str, str] = None):
+        """Upload blob with metadata"""
+        try:
+            blob_client = self.client.get_blob_client(
+                container=container_name, blob=blob_name
+            )
+            
+            blob_client.upload_blob(
+                data, metadata=metadata, overwrite=True
+            )
+            
+            self.logger.info(f"Blob uploaded: {blob_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Upload failed: {e}")
+            return False
+    
+    def setup_lifecycle_policy(self, rules: List[Dict]):
+        """Set up lifecycle management rules"""
+        policy = {'rules': []}
+        
+        for rule in rules:
+            policy_rule = {
+                'name': rule['name'],
+                'enabled': True,
+                'type': 'Lifecycle',
+                'definition': {
+                    'filters': {
+                        'blobTypes': ['blockBlob'],
+                        'prefixMatch': [rule.get('prefix', '')]
+                    },
+                    'actions': {'baseBlob': {}}
+                }
+            }
+            
+            if 'cool_after_days' in rule:
+                policy_rule['definition']['actions']['baseBlob']['tierToCool'] = {
+                    'daysAfterModificationGreaterThan': rule['cool_after_days']
+                }
+            
+            policy['rules'].append(policy_rule)
+        
+        return policy
+
+# Usage
+connection_string = "DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key"
+azure_manager = AzureBlobManager(connection_string)
+azure_manager.create_container('my-container')
+```
+
+## Google Cloud Storage
+
+### GCS Implementation
+
+```python
+# Google Cloud Storage implementation
+from google.cloud import storage
+import logging
+
+class GCSManager:
+    def __init__(self, project_id: str):
+        self.client = storage.Client(project=project_id)
+        self.logger = logging.getLogger(__name__)
+    
+    def create_bucket(self, bucket_name: str, location: str = 'US'):
+        """Create GCS bucket"""
+        try:
+            bucket = self.client.bucket(bucket_name)
+            bucket = self.client.create_bucket(bucket, location=location)
+            self.logger.info(f"Bucket created: {bucket_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to create bucket: {e}")
+            return False
+    
+    def upload_object(self, bucket_name: str, object_name: str, 
+                     source_file: str, metadata: Dict[str, str] = None):
+        """Upload object to GCS"""
+        try:
+            bucket = self.client.bucket(bucket_name)
+            blob = bucket.blob(object_name)
+            
+            if metadata:
+                blob.metadata = metadata
+            
+            blob.upload_from_filename(source_file)
+            self.logger.info(f"Object uploaded: {object_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Upload failed: {e}")
+            return False
+
+# Usage
+gcs_manager = GCSManager('my-project-id')
+gcs_manager.create_bucket('my-gcs-bucket')
+```
+
+## Object Storage Comparison
+
+| Feature | AWS S3 | Azure Blob | Google Cloud Storage |
+|---------|--------|------------|---------------------|
+| **Storage Classes** | Standard, IA, Glacier, Deep Archive | Hot, Cool, Archive | Standard, Nearline, Coldline, Archive |
+| **Durability** | 99.999999999% | 99.999999999% | 99.999999999% |
+| **Max Object Size** | 5TB | 4.75TB | 5TB |
+| **API** | REST, SDK | REST, SDK | REST, SDK |
+
+## Best Practices
+
+### Performance Optimization
+- **Multipart uploads** - Use for files > 100MB
+- **Parallel uploads** - Upload multiple objects concurrently
+- **Request optimization** - Minimize API calls
+- **CDN integration** - Use CloudFront/CDN for distribution
+
+### Cost Optimization
+- **Storage classes** - Choose appropriate storage tiers
+- **Lifecycle policies** - Automate data archival
+- **Data transfer** - Minimize cross-region transfers
+- **Request patterns** - Optimize access patterns
+
+### Security
+- **Encryption** - Enable encryption at rest and in transit
+- **Access controls** - Implement least privilege access
+- **Presigned URLs** - Use for temporary access
+- **Audit logging** - Enable comprehensive logging
+
+### Data Management
+- **Versioning** - Enable for data protection
+- **Replication** - Set up cross-region replication
+- **Backup strategies** - Implement regular backups
+- **Metadata management** - Use consistent metadata schemas
+
+## Use Cases
+
+### Content Distribution
+- Static website hosting
+- Media file distribution
+- Software distribution
+- Document sharing
+
+### Data Analytics
+- Data lake storage
+- Log file storage
+- Backup and archival
+- Big data processing
+
+### Application Storage
+- User-generated content
+- Application assets
+- Configuration files
+- Temporary file storage
+
+## Summary
+
+Object storage provides scalable, durable, and cost-effective storage for unstructured data. Key considerations:
+
+- **Choose the right provider** - Based on ecosystem and requirements
+- **Implement lifecycle policies** - For cost optimization
+- **Design for scale** - Consider performance and access patterns
+- **Ensure security** - Implement comprehensive security measures
+- **Monitor costs** - Regular cost analysis and optimization
+
+---
+
+**Next**: Learn about [ETL vs ELT](/chapters/data-ingestion/etl-vs-elt) processing patterns.

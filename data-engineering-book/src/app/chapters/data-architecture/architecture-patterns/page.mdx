@@ -1,0 +1,848 @@
+# Data
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Architecture Patterns
+
+Data architecture patterns provide proven blueprints for organizing data systems at scale. Understanding these patterns is crucial for designing robust, maintainable, and scalable data platforms that can evolve with business needs.
+
+## Layered Architecture Pattern
+
+The layered architecture organizes data systems into distinct layers, each with specific responsibilities.
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Presentation Layer"
+        A[Dashboards]
+        B[Reports]
+        C[APIs]
+    end
+    
+    subgraph "Business Logic Layer"
+        D[Data Marts]
+        E[Aggregations]
+        F[Business Rules]
+    end
+    
+    subgraph "Data Access Layer"
+        G[Data Warehouse]
+        H[Data Lake]
+        I[Operational Stores]
+    end
+    
+    subgraph "Data Sources"
+        J[Transactional DBs]
+        K[External APIs]
+        L[Files/Streams]
+    end
+    
+    A --> D
+    B --> E
+    C --> F
+    D --> G
+    E --> H
+    F --> I
+    G --> J
+    H --> K
+    I --> L
+`} />
+
+### Implementation Example
+
+```python
+# Layered Data Architecture Implementation
+from abc import ABC, abstractmethod
+from typing import Dict, List, Any
+import pandas as pd
+
+class DataAccessLayer(ABC):
+    """Abstract base class for data access"""
+    
+    @abstractmethod
+    def extract_data(self, query: str) -> pd.DataFrame:
+        pass
+    
+    @abstractmethod
+    def load_data(self, df: pd.DataFrame, table: str) -> None:
+        pass
+
+class WarehouseDataAccess(DataAccessLayer):
+    """Data warehouse access implementation"""
+    
+    def __init__(self, connection_string: str):
+        self.connection = connection_string
+    
+    def extract_data(self, query: str) -> pd.DataFrame:
+        # Implementation for warehouse queries
+        return pd.read_sql(query, self.connection)
+    
+    def load_data(self, df: pd.DataFrame, table: str) -> None:
+        # Implementation for warehouse loading
+        df.to_sql(table, self.connection, if_exists='replace')
+
+class BusinessLogicLayer:
+    """Business logic and transformations"""
+    
+    def __init__(self, data_access: DataAccessLayer):
+        self.data_access = data_access
+    
+    def calculate_customer_metrics(self) -> pd.DataFrame:
+        """Calculate customer lifetime value and segments"""
+        query = """
+        SELECT 
+            customer_id,
+            SUM(order_amount) as total_spent,
+            COUNT(*) as order_count,
+            AVG(order_amount) as avg_order_value,
+            MAX(order_date) as last_order_date
+        FROM orders 
+        GROUP BY customer_id
+        """
+        
+        df = self.data_access.extract_data(query)
+        
+        # Apply business rules
+        df['customer_segment'] = df['total_spent'].apply(self._categorize_customer)
+        df['days_since_last_order'] = (
+            pd.Timestamp.now() - pd.to_datetime(df['last_order_date'])
+        ).dt.days
+        
+        return df
+    
+    def _categorize_customer(self, total_spent: float) -> str:
+        """Categorize customers based on spending"""
+        if total_spent >= 10000:
+            return 'VIP'
+        elif total_spent >= 1000:
+            return 'Premium'
+        elif total_spent >= 100:
+            return 'Regular'
+        else:
+            return 'New'
+
+class PresentationLayer:
+    """Data presentation and API layer"""
+    
+    def __init__(self, business_logic: BusinessLogicLayer):
+        self.business_logic = business_logic
+    
+    def get_customer_dashboard_data(self) -> Dict[str, Any]:
+        """Prepare data for customer dashboard"""
+        metrics = self.business_logic.calculate_customer_metrics()
+        
+        return {
+            'total_customers': len(metrics),
+            'segment_distribution': metrics['customer_segment'].value_counts().to_dict(),
+            'avg_customer_value': metrics['total_spent'].mean(),
+            'top_customers': metrics.nlargest(10, 'total_spent').to_dict('records')
+        }
+
+# Usage example
+warehouse_access = WarehouseDataAccess("postgresql://warehouse")
+business_logic = BusinessLogicLayer(warehouse_access)
+presentation = PresentationLayer(business_logic)
+
+dashboard_data = presentation.get_customer_dashboard_data()
+```
+
+## Event-Driven Architecture
+
+Event-driven architecture organizes systems around the production, detection, and consumption of events.
+
+### Core Components
+
+```python
+# Event-Driven Architecture Components
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List, Callable
+import json
+import asyncio
+
+@dataclass
+class Event:
+    """Base event class"""
+    event_type: str
+    timestamp: datetime
+    payload: dict
+    source: str
+    event_id: str
+
+class EventBus:
+    """Central event bus for publishing and subscribing"""
+    
+    def __init__(self):
+        self.subscribers: Dict[str, List[Callable]] = {}
+    
+    def subscribe(self, event_type: str, handler: Callable):
+        """Subscribe to events of a specific type"""
+        if event_type not in self.subscribers:
+            self.subscribers[event_type] = []
+        self.subscribers[event_type].append(handler)
+    
+    async def publish(self, event: Event):
+        """Publish event to all subscribers"""
+        if event.event_type in self.subscribers:
+            tasks = []
+            for handler in self.subscribers[event.event_type]:
+                tasks.append(asyncio.create_task(handler(event)))
+            await asyncio.gather(*tasks)
+
+class CustomerEventHandler:
+    """Handle customer-related events"""
+    
+    def __init__(self, data_store):
+        self.data_store = data_store
+    
+    async def handle_customer_created(self, event: Event):
+        """Handle new customer creation"""
+        customer_data = event.payload
+        
+        # Update customer dimension table
+        await self.data_store.upsert_customer(customer_data)
+        
+        # Trigger welcome email workflow
+        welcome_event = Event(
+            event_type="customer.welcome_needed",
+            timestamp=datetime.utcnow(),
+            payload={"customer_id": customer_data["id"]},
+            source="customer_service",
+            event_id=f"welcome_{customer_data['id']}"
+        )
+        
+        await event_bus.publish(welcome_event)
+    
+    async def handle_order_placed(self, event: Event):
+        """Handle order placement"""
+        order_data = event.payload
+        
+        # Update customer metrics
+        await self.update_customer_metrics(order_data["customer_id"])
+        
+        # Check for segment changes
+        await self.check_segment_change(order_data["customer_id"])
+
+# Setup event-driven system
+event_bus = EventBus()
+customer_handler = CustomerEventHandler(data_store)
+
+event_bus.subscribe("customer.created", customer_handler.handle_customer_created)
+event_bus.subscribe("order.placed", customer_handler.handle_order_placed)
+```
+
+## Microservices Data Architecture
+
+Microservices architecture distributes data responsibilities across independent services.
+
+### Service Mesh Pattern
+
+```python
+# Microservices Data Architecture
+class DataService:
+    """Base class for data microservices"""
+    
+    def __init__(self, service_name: str, database_url: str):
+        self.service_name = service_name
+        self.database_url = database_url
+        self.health_status = "healthy"
+    
+    async def health_check(self) -> Dict[str, str]:
+        """Service health check"""
+        return {
+            "service": self.service_name,
+            "status": self.health_status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+class CustomerDataService(DataService):
+    """Customer data microservice"""
+    
+    def __init__(self):
+        super().__init__("customer-data", "postgresql://customer-db")
+    
+    async def get_customer(self, customer_id: str) -> Dict:
+        """Get customer data"""
+        # Implementation for customer retrieval
+        return {"customer_id": customer_id, "name": "John Doe"}
+    
+    async def update_customer(self, customer_id: str, data: Dict) -> bool:
+        """Update customer data"""
+        # Implementation for customer update
+        return True
+    
+    async def get_customer_metrics(self, customer_id: str) -> Dict:
+        """Get customer analytics metrics"""
+        return {
+            "total_orders": 25,
+            "lifetime_value": 5000.00,
+            "segment": "Premium"
+        }
+
+class OrderDataService(DataService):
+    """Order data microservice"""
+    
+    def __init__(self):
+        super().__init__("order-data", "postgresql://order-db")
+    
+    async def create_order(self, order_data: Dict) -> str:
+        """Create new order"""
+        # Implementation for order creation
+        return "order_123"
+    
+    async def get_orders(self, customer_id: str) -> List[Dict]:
+        """Get customer orders"""
+        # Implementation for order retrieval
+        return [{"order_id": "123", "amount": 100.00}]
+
+class DataAggregationService(DataService):
+    """Service for cross-service data aggregation"""
+    
+    def __init__(self, customer_service: CustomerDataService, 
+                 order_service: OrderDataService):
+        super().__init__("data-aggregation", "postgresql://analytics-db")
+        self.customer_service = customer_service
+        self.order_service = order_service
+    
+    async def get_customer_360_view(self, customer_id: str) -> Dict:
+        """Get complete customer view across services"""
+        
+        # Fetch data from multiple services
+        customer_data = await self.customer_service.get_customer(customer_id)
+        customer_metrics = await self.customer_service.get_customer_metrics(customer_id)
+        orders = await self.order_service.get_orders(customer_id)
+        
+        # Aggregate into unified view
+        return {
+            "customer": customer_data,
+            "metrics": customer_metrics,
+            "recent_orders": orders[-5:],  # Last 5 orders
+            "aggregated_at": datetime.utcnow().isoformat()
+        }
+
+# Service registry and discovery
+class ServiceRegistry:
+    """Service registry for microservices discovery"""
+    
+    def __init__(self):
+        self.services: Dict[str, DataService] = {}
+    
+    def register_service(self, service: DataService):
+        """Register a service"""
+        self.services[service.service_name] = service
+    
+    def discover_service(self, service_name: str) -> DataService:
+        """Discover a service by name"""
+        return self.services.get(service_name)
+    
+    async def health_check_all(self) -> Dict[str, Dict]:
+        """Check health of all registered services"""
+        health_status = {}
+        for name, service in self.services.items():
+            health_status[name] = await service.health_check()
+        return health_status
+
+# Setup microservices architecture
+registry = ServiceRegistry()
+customer_service = CustomerDataService()
+order_service = OrderDataService()
+aggregation_service = DataAggregationService(customer_service, order_service)
+
+registry.register_service(customer_service)
+registry.register_service(order_service)
+registry.register_service(aggregation_service)
+```
+
+## CQRS (Command Query Responsibility Segregation)
+
+CQRS separates read and write operations to optimize for different access patterns.
+
+<MermaidDiagram chart={`
+graph LR
+    subgraph "Command Side (Write)"
+        A[Commands] --> B[Command Handlers]
+        B --> C[Write Database]
+        B --> D[Event Store]
+    end
+    
+    subgraph "Query Side (Read)"
+        E[Queries] --> F[Query Handlers]
+        F --> G[Read Database]
+        F --> H[Materialized Views]
+    end
+    
+    D --> I[Event Processors]
+    I --> G
+    I --> H
+    
+    style C fill:#ffcccc
+    style G fill:#ccffcc
+`} />
+
+### CQRS Implementation
+
+```python
+# CQRS Pattern Implementation
+from abc import ABC, abstractmethod
+from typing import Any, List
+from dataclasses import dataclass
+from datetime import datetime
+
+# Command Side (Write)
+@dataclass
+class Command:
+    """Base command class"""
+    command_id: str
+    timestamp: datetime
+    user_id: str
+
+@dataclass
+class CreateCustomerCommand(Command):
+    """Command to create a new customer"""
+    customer_data: Dict[str, Any]
+
+@dataclass
+class UpdateCustomerCommand(Command):
+    """Command to update customer"""
+    customer_id: str
+    updates: Dict[str, Any]
+
+class CommandHandler(ABC):
+    """Abstract base class for command handlers"""
+    
+    @abstractmethod
+    async def handle(self, command: Command) -> Any:
+        pass
+
+class CustomerCommandHandler(CommandHandler):
+    """Handle customer-related commands"""
+    
+    def __init__(self, write_store, event_store):
+        self.write_store = write_store
+        self.event_store = event_store
+    
+    async def handle(self, command: Command) -> Any:
+        if isinstance(command, CreateCustomerCommand):
+            return await self._handle_create_customer(command)
+        elif isinstance(command, UpdateCustomerCommand):
+            return await self._handle_update_customer(command)
+    
+    async def _handle_create_customer(self, command: CreateCustomerCommand) -> str:
+        """Handle customer creation"""
+        customer_id = await self.write_store.create_customer(command.customer_data)
+        
+        # Store event for read side processing
+        event = {
+            "event_type": "customer_created",
+            "customer_id": customer_id,
+            "data": command.customer_data,
+            "timestamp": command.timestamp
+        }
+        await self.event_store.append_event(event)
+        
+        return customer_id
+
+# Query Side (Read)
+@dataclass
+class Query:
+    """Base query class"""
+    query_id: str
+    user_id: str
+
+@dataclass
+class GetCustomerQuery(Query):
+    """Query to get customer data"""
+    customer_id: str
+
+@dataclass
+class GetCustomerMetricsQuery(Query):
+    """Query to get customer metrics"""
+    customer_id: str
+
+class QueryHandler(ABC):
+    """Abstract base class for query handlers"""
+    
+    @abstractmethod
+    async def handle(self, query: Query) -> Any:
+        pass
+
+class CustomerQueryHandler(QueryHandler):
+    """Handle customer-related queries"""
+    
+    def __init__(self, read_store):
+        self.read_store = read_store
+    
+    async def handle(self, query: Query) -> Any:
+        if isinstance(query, GetCustomerQuery):
+            return await self._handle_get_customer(query)
+        elif isinstance(query, GetCustomerMetricsQuery):
+            return await self._handle_get_customer_metrics(query)
+    
+    async def _handle_get_customer(self, query: GetCustomerQuery) -> Dict:
+        """Handle customer retrieval"""
+        return await self.read_store.get_customer(query.customer_id)
+    
+    async def _handle_get_customer_metrics(self, query: GetCustomerMetricsQuery) -> Dict:
+        """Handle customer metrics retrieval"""
+        return await self.read_store.get_customer_metrics(query.customer_id)
+
+# Event Processor for Read Side Updates
+class ReadSideEventProcessor:
+    """Process events to update read side"""
+    
+    def __init__(self, read_store):
+        self.read_store = read_store
+    
+    async def process_event(self, event: Dict):
+        """Process event and update read models"""
+        if event["event_type"] == "customer_created":
+            await self._update_customer_read_model(event)
+        elif event["event_type"] == "order_placed":
+            await self._update_customer_metrics(event)
+    
+    async def _update_customer_read_model(self, event: Dict):
+        """Update customer read model"""
+        await self.read_store.upsert_customer_view(
+            event["customer_id"], 
+            event["data"]
+        )
+    
+    async def _update_customer_metrics(self, event: Dict):
+        """Update customer metrics read model"""
+        await self.read_store.update_customer_metrics(
+            event["customer_id"],
+            event["order_data"]
+        )
+
+# CQRS Orchestrator
+class CQRSOrchestrator:
+    """Orchestrate CQRS operations"""
+    
+    def __init__(self):
+        self.command_handlers = {}
+        self.query_handlers = {}
+        self.event_processors = []
+    
+    def register_command_handler(self, command_type: type, handler: CommandHandler):
+        """Register command handler"""
+        self.command_handlers[command_type] = handler
+    
+    def register_query_handler(self, query_type: type, handler: QueryHandler):
+        """Register query handler"""
+        self.query_handlers[query_type] = handler
+    
+    def register_event_processor(self, processor: ReadSideEventProcessor):
+        """Register event processor"""
+        self.event_processors.append(processor)
+    
+    async def execute_command(self, command: Command) -> Any:
+        """Execute command"""
+        handler = self.command_handlers.get(type(command))
+        if not handler:
+            raise ValueError(f"No handler for command type {type(command)}")
+        return await handler.handle(command)
+    
+    async def execute_query(self, query: Query) -> Any:
+        """Execute query"""
+        handler = self.query_handlers.get(type(query))
+        if not handler:
+            raise ValueError(f"No handler for query type {type(query)}")
+        return await handler.handle(query)
+```
+
+## Data Mesh Architecture
+
+Data Mesh treats data as a product with domain ownership and federated governance.
+
+### Domain Data Products
+
+```python
+# Data Mesh Implementation
+from abc import ABC, abstractmethod
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+
+@dataclass
+class DataProduct:
+    """Data product definition"""
+    name: str
+    domain: str
+    owner: str
+    version: str
+    schema: Dict
+    sla: Dict
+    access_patterns: List[str]
+
+class DataProductInterface(ABC):
+    """Interface for data products"""
+    
+    @abstractmethod
+    async def get_data(self, query: Dict) -> Any:
+        pass
+    
+    @abstractmethod
+    async def get_schema(self) -> Dict:
+        pass
+    
+    @abstractmethod
+    async def get_metadata(self) -> Dict:
+        pass
+    
+    @abstractmethod
+    async def health_check(self) -> Dict:
+        pass
+
+class CustomerDataProduct(DataProductInterface):
+    """Customer domain data product"""
+    
+    def __init__(self):
+        self.product_info = DataProduct(
+            name="customer-analytics",
+            domain="customer",
+            owner="customer-team@company.com",
+            version="1.2.0",
+            schema={
+                "customer_id": "string",
+                "segment": "string",
+                "lifetime_value": "float",
+                "last_activity": "timestamp"
+            },
+            sla={
+                "availability": "99.9%",
+                "latency_p95": "100ms",
+                "freshness": "1 hour"
+            },
+            access_patterns=["batch", "streaming", "api"]
+        )
+    
+    async def get_data(self, query: Dict) -> Any:
+        """Get customer data based on query"""
+        # Implementation for data retrieval
+        return {"customers": []}
+    
+    async def get_schema(self) -> Dict:
+        """Get data product schema"""
+        return self.product_info.schema
+    
+    async def get_metadata(self) -> Dict:
+        """Get data product metadata"""
+        return {
+            "name": self.product_info.name,
+            "domain": self.product_info.domain,
+            "owner": self.product_info.owner,
+            "version": self.product_info.version,
+            "sla": self.product_info.sla
+        }
+    
+    async def health_check(self) -> Dict:
+        """Check data product health"""
+        return {
+            "status": "healthy",
+            "last_updated": datetime.utcnow().isoformat(),
+            "data_quality_score": 0.95
+        }
+
+class DataMeshPlatform:
+    """Data mesh platform for managing data products"""
+    
+    def __init__(self):
+        self.data_products: Dict[str, DataProductInterface] = {}
+        self.governance_policies = {}
+    
+    def register_data_product(self, name: str, product: DataProductInterface):
+        """Register a data product"""
+        self.data_products[name] = product
+    
+    async def discover_data_products(self, domain: Optional[str] = None) -> List[Dict]:
+        """Discover available data products"""
+        products = []
+        for name, product in self.data_products.items():
+            metadata = await product.get_metadata()
+            if domain is None or metadata.get("domain") == domain:
+                products.append(metadata)
+        return products
+    
+    async def get_data_product_catalog(self) -> Dict:
+        """Get complete data product catalog"""
+        catalog = {}
+        for name, product in self.data_products.items():
+            catalog[name] = {
+                "metadata": await product.get_metadata(),
+                "schema": await product.get_schema(),
+                "health": await product.health_check()
+            }
+        return catalog
+    
+    def apply_governance_policy(self, policy_name: str, policy: Dict):
+        """Apply governance policy"""
+        self.governance_policies[policy_name] = policy
+    
+    async def validate_data_product_compliance(self, product_name: str) -> Dict:
+        """Validate data product against governance policies"""
+        product = self.data_products.get(product_name)
+        if not product:
+            return {"compliant": False, "reason": "Product not found"}
+        
+        # Check compliance against policies
+        compliance_results = {}
+        for policy_name, policy in self.governance_policies.items():
+            compliance_results[policy_name] = await self._check_policy_compliance(
+                product, policy
+            )
+        
+        return {
+            "compliant": all(compliance_results.values()),
+            "policy_results": compliance_results
+        }
+    
+    async def _check_policy_compliance(self, product: DataProductInterface, 
+                                     policy: Dict) -> bool:
+        """Check if product complies with specific policy"""
+        # Implementation for policy compliance checking
+        return True
+
+# Usage example
+mesh_platform = DataMeshPlatform()
+customer_product = CustomerDataProduct()
+
+mesh_platform.register_data_product("customer-analytics", customer_product)
+
+# Apply governance policies
+mesh_platform.apply_governance_policy("data_quality", {
+    "min_quality_score": 0.9,
+    "required_tests": ["completeness", "uniqueness", "validity"]
+})
+
+mesh_platform.apply_governance_policy("security", {
+    "encryption_required": True,
+    "access_control": "rbac",
+    "audit_logging": True
+})
+```
+
+## Best Practices
+
+### Architecture Decision Records (ADRs)
+
+```markdown
+# ADR-001: Choose Event-Driven Architecture for Real-time Processing
+
+## Status
+Accepted
+
+## Context
+We need to process customer events in real-time to provide personalized experiences and immediate fraud detection.
+
+## Decision
+We will implement an event-driven architecture using Apache Kafka as the event backbone.
+
+## Consequences
+**Positive:**
+- Real-time processing capabilities
+- Loose coupling between services
+- Scalable and resilient
+
+**Negative:**
+- Increased complexity
+- Eventual consistency challenges
+- Debugging difficulties
+```
+
+### Architecture Evaluation Framework
+
+```python
+# Architecture Evaluation Framework
+class ArchitectureEvaluator:
+    """Evaluate architecture patterns against requirements"""
+    
+    def __init__(self):
+        self.evaluation_criteria = {
+            "scalability": {"weight": 0.25, "max_score": 10},
+            "maintainability": {"weight": 0.20, "max_score": 10},
+            "performance": {"weight": 0.20, "max_score": 10},
+            "reliability": {"weight": 0.15, "max_score": 10},
+            "security": {"weight": 0.10, "max_score": 10},
+            "cost": {"weight": 0.10, "max_score": 10}
+        }
+    
+    def evaluate_pattern(self, pattern_name: str, scores: Dict[str, int]) -> Dict:
+        """Evaluate architecture pattern"""
+        weighted_score = 0
+        detailed_scores = {}
+        
+        for criterion, config in self.evaluation_criteria.items():
+            score = scores.get(criterion, 0)
+            weighted_score += score * config["weight"]
+            detailed_scores[criterion] = {
+                "score": score,
+                "weight": config["weight"],
+                "weighted_score": score * config["weight"]
+            }
+        
+        return {
+            "pattern": pattern_name,
+            "total_score": weighted_score,
+            "detailed_scores": detailed_scores,
+            "recommendation": self._get_recommendation(weighted_score)
+        }
+    
+    def _get_recommendation(self, score: float) -> str:
+        """Get recommendation based on score"""
+        if score >= 8.0:
+            return "Highly Recommended"
+        elif score >= 6.0:
+            return "Recommended"
+        elif score >= 4.0:
+            return "Consider with Caution"
+        else:
+            return "Not Recommended"
+
+# Example evaluation
+evaluator = ArchitectureEvaluator()
+
+# Evaluate different patterns for a use case
+patterns_evaluation = {
+    "Event-Driven": {
+        "scalability": 9,
+        "maintainability": 6,
+        "performance": 8,
+        "reliability": 7,
+        "security": 7,
+        "cost": 5
+    },
+    "Layered": {
+        "scalability": 6,
+        "maintainability": 8,
+        "performance": 7,
+        "reliability": 8,
+        "security": 8,
+        "cost": 8
+    },
+    "Microservices": {
+        "scalability": 9,
+        "maintainability": 5,
+        "performance": 7,
+        "reliability": 6,
+        "security": 6,
+        "cost": 4
+    }
+}
+
+for pattern, scores in patterns_evaluation.items():
+    result = evaluator.evaluate_pattern(pattern, scores)
+    print(f"{pattern}: {result['total_score']:.2f} - {result['recommendation']}")
+```
+
+## Summary
+
+Data architecture patterns provide the foundation for building scalable, maintainable data systems. Key considerations when choosing patterns include:
+
+- **Business Requirements**: Align architecture with business needs
+- **Scale Requirements**: Consider current and future data volumes
+- **Team Capabilities**: Match complexity to team expertise
+- **Technology Constraints**: Work within existing technology stack
+- **Compliance Needs**: Ensure architecture supports regulatory requirements
+
+The most successful data architectures often combine multiple patterns, using the right pattern for each specific use case within the broader system.
+
+---
+
+**Next**: Learn about [Lambda vs Kappa Architecture](/chapters/data-architecture/lambda-vs-kappa) to understand the trade-offs between batch and stream processing architectures.

@@ -1,0 +1,529 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Privacy and Security
+
+Data privacy and security are critical aspects of data engineering that ensure sensitive information is protected, regulatory compliance is maintained, and data access is properly controlled. This involves implementing comprehensive security measures, privacy-preserving techniques, and governance frameworks.
+
+## Data Privacy and Security Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Customer Data]
+        DS2[Financial Records]
+        DS3[Healthcare Data]
+        DS4[Employee Info]
+    end
+    
+    subgraph "Privacy Layer"
+        PL1[Data Classification]
+        PL2[Anonymization]
+        PL3[Pseudonymization]
+        PL4[Encryption]
+    end
+    
+    subgraph "Access Control"
+        AC1[Authentication]
+        AC2[Authorization]
+        AC3[Role-Based Access]
+        AC4[Audit Logging]
+    end
+    
+    subgraph "Compliance"
+        C1[GDPR Compliance]
+        C2[Data Retention]
+        C3[Breach Management]
+        C4[Subject Rights]
+    end
+    
+    DS1 --> PL1
+    DS2 --> PL2
+    DS3 --> PL3
+    DS4 --> PL4
+    
+    PL1 --> AC1
+    PL2 --> AC2
+    PL3 --> AC3
+    PL4 --> AC4
+    
+    AC1 --> C1
+    AC2 --> C2
+    AC3 --> C3
+    AC4 --> C4
+    
+    style DS1 fill:#ffebee
+    style PL1 fill:#e8f5e8
+    style AC1 fill:#e3f2fd
+    style C1 fill:#f3e5f5
+`} />
+
+## Data Classification and Protection System
+
+### Automated Data Classification
+
+```python
+# Comprehensive Data Privacy and Security Framework
+import hashlib
+import secrets
+import base64
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Set
+from dataclasses import dataclass
+from enum import Enum
+import json
+import re
+import logging
+from cryptography.fernet import Fernet
+import pandas as pd
+import uuid
+
+class DataClassificationLevel(Enum):
+    """Data classification levels"""
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+
+class PIIType(Enum):
+    """Types of Personally Identifiable Information"""
+    NAME = "name"
+    EMAIL = "email"
+    PHONE = "phone"
+    SSN = "ssn"
+    CREDIT_CARD = "credit_card"
+    ADDRESS = "address"
+    IP_ADDRESS = "ip_address"
+
+@dataclass
+class ClassificationRule:
+    """Rule for classifying data"""
+    name: str
+    pattern: str
+    pii_type: PIIType
+    classification_level: DataClassificationLevel
+    
+    def matches(self, value: str) -> bool:
+        """Check if value matches this rule"""
+        if not isinstance(value, str):
+            return False
+        return bool(re.search(self.pattern, value, re.IGNORECASE))
+
+class DataClassifier:
+    """Automated data classification system"""
+    
+    def __init__(self):
+        self.rules = [
+            ClassificationRule(
+                "Email Address",
+                r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+                PIIType.EMAIL,
+                DataClassificationLevel.CONFIDENTIAL
+            ),
+            ClassificationRule(
+                "Phone Number",
+                r'\b\d{3}-\d{3}-\d{4}\b|\b\(\d{3}\)\s*\d{3}-\d{4}\b',
+                PIIType.PHONE,
+                DataClassificationLevel.CONFIDENTIAL
+            ),
+            ClassificationRule(
+                "Social Security Number",
+                r'\b\d{3}-\d{2}-\d{4}\b',
+                PIIType.SSN,
+                DataClassificationLevel.RESTRICTED
+            ),
+            ClassificationRule(
+                "Credit Card",
+                r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+                PIIType.CREDIT_CARD,
+                DataClassificationLevel.RESTRICTED
+            )
+        ]
+        self.logger = logging.getLogger(__name__)
+    
+    def classify_column(self, column_data: pd.Series) -> Dict[str, Any]:
+        """Classify a data column"""
+        sample_data = column_data.dropna().head(100)
+        
+        result = {
+            'column_name': column_data.name,
+            'detected_pii': [],
+            'classification_level': DataClassificationLevel.PUBLIC,
+            'confidence_scores': {}
+        }
+        
+        for rule in self.rules:
+            matches = sum(1 for value in sample_data if rule.matches(str(value)))
+            confidence = matches / len(sample_data) if len(sample_data) > 0 else 0
+            
+            if confidence >= 0.1:  # 10% threshold
+                result['detected_pii'].append({
+                    'pii_type': rule.pii_type.value,
+                    'confidence': confidence
+                })
+                result['confidence_scores'][rule.name] = confidence
+                
+                # Update to most restrictive classification
+                if rule.classification_level == DataClassificationLevel.RESTRICTED:
+                    result['classification_level'] = DataClassificationLevel.RESTRICTED
+                elif (rule.classification_level == DataClassificationLevel.CONFIDENTIAL and 
+                      result['classification_level'] != DataClassificationLevel.RESTRICTED):
+                    result['classification_level'] = DataClassificationLevel.CONFIDENTIAL
+        
+        return result
+    
+    def classify_dataset(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Classify entire dataset"""
+        column_results = {}
+        overall_level = DataClassificationLevel.PUBLIC
+        pii_summary = {}
+        
+        for column in df.columns:
+            col_result = self.classify_column(df[column])
+            column_results[column] = col_result
+            
+            # Update overall classification
+            if self._is_more_restrictive(col_result['classification_level'], overall_level):
+                overall_level = col_result['classification_level']
+            
+            # Count PII types
+            for pii_info in col_result['detected_pii']:
+                pii_type = pii_info['pii_type']
+                pii_summary[pii_type] = pii_summary.get(pii_type, 0) + 1
+        
+        return {
+            'column_classifications': column_results,
+            'overall_classification': overall_level,
+            'pii_summary': pii_summary,
+            'recommendations': self._generate_recommendations(overall_level, pii_summary)
+        }
+    
+    def _is_more_restrictive(self, level1, level2) -> bool:
+        """Check if level1 is more restrictive than level2"""
+        hierarchy = {
+            DataClassificationLevel.PUBLIC: 0,
+            DataClassificationLevel.INTERNAL: 1,
+            DataClassificationLevel.CONFIDENTIAL: 2,
+            DataClassificationLevel.RESTRICTED: 3
+        }
+        return hierarchy[level1] > hierarchy[level2]
+    
+    def _generate_recommendations(self, level, pii_summary) -> List[str]:
+        """Generate security recommendations"""
+        recommendations = []
+        
+        if level == DataClassificationLevel.RESTRICTED:
+            recommendations.extend([
+                "Implement strong encryption for data at rest and in transit",
+                "Enable comprehensive audit logging",
+                "Restrict access to authorized personnel only"
+            ])
+        
+        if level == DataClassificationLevel.CONFIDENTIAL:
+            recommendations.extend([
+                "Apply data masking for non-production environments",
+                "Implement role-based access control"
+            ])
+        
+        if 'ssn' in pii_summary or 'credit_card' in pii_summary:
+            recommendations.append("Consider tokenization for sensitive identifiers")
+        
+        if 'email' in pii_summary:
+            recommendations.append("Implement GDPR compliance measures")
+        
+        return recommendations
+
+class EncryptionManager:
+    """Manages encryption and decryption operations"""
+    
+    def __init__(self):
+        self.master_key = Fernet.generate_key()
+        self.cipher_suite = Fernet(self.master_key)
+        self.logger = logging.getLogger(__name__)
+    
+    def encrypt_value(self, value: str) -> str:
+        """Encrypt a single value"""
+        encrypted_bytes = self.cipher_suite.encrypt(str(value).encode())
+        return base64.b64encode(encrypted_bytes).decode()
+    
+    def decrypt_value(self, encrypted_value: str) -> str:
+        """Decrypt a single value"""
+        encrypted_bytes = base64.b64decode(encrypted_value.encode())
+        decrypted_bytes = self.cipher_suite.decrypt(encrypted_bytes)
+        return decrypted_bytes.decode()
+    
+    def encrypt_column(self, df: pd.DataFrame, column_name: str) -> pd.DataFrame:
+        """Encrypt entire column"""
+        df_copy = df.copy()
+        df_copy[column_name] = df_copy[column_name].apply(
+            lambda x: self.encrypt_value(x) if pd.notna(x) else x
+        )
+        return df_copy
+
+class DataMasker:
+    """Implements various data masking techniques"""
+    
+    def mask_email(self, email: str) -> str:
+        """Mask email address"""
+        if '@' not in email:
+            return email
+        local, domain = email.split('@', 1)
+        masked_local = local[0] + '*' * (len(local) - 2) + local[-1] if len(local) > 2 else '*' * len(local)
+        return f"{masked_local}@{domain}"
+    
+    def mask_phone(self, phone: str) -> str:
+        """Mask phone number"""
+        digits_only = re.sub(r'\D', '', phone)
+        return f"***-***-{digits_only[-4:]}" if len(digits_only) >= 10 else '*' * len(phone)
+    
+    def mask_ssn(self, ssn: str) -> str:
+        """Mask Social Security Number"""
+        digits_only = re.sub(r'\D', '', ssn)
+        return f"***-**-{digits_only[-4:]}" if len(digits_only) == 9 else '*' * len(ssn)
+    
+    def mask_credit_card(self, card_number: str) -> str:
+        """Mask credit card number"""
+        digits_only = re.sub(r'\D', '', card_number)
+        return f"****-****-****-{digits_only[-4:]}" if len(digits_only) >= 12 else '*' * len(card_number)
+    
+    def apply_masking(self, df: pd.DataFrame, column_name: str, pii_type: PIIType) -> pd.DataFrame:
+        """Apply appropriate masking based on PII type"""
+        df_copy = df.copy()
+        
+        masking_functions = {
+            PIIType.EMAIL: self.mask_email,
+            PIIType.PHONE: self.mask_phone,
+            PIIType.SSN: self.mask_ssn,
+            PIIType.CREDIT_CARD: self.mask_credit_card
+        }
+        
+        if pii_type in masking_functions:
+            mask_func = masking_functions[pii_type]
+            df_copy[column_name] = df_copy[column_name].apply(
+                lambda x: mask_func(str(x)) if pd.notna(x) else x
+            )
+        
+        return df_copy
+
+class AccessControlManager:
+    """Manages data access control and permissions"""
+    
+    def __init__(self):
+        self.user_roles = {}
+        self.role_permissions = {}
+        self.access_logs = []
+        self.logger = logging.getLogger(__name__)
+    
+    def create_role(self, role_name: str, permissions: List[str]):
+        """Create a new role with permissions"""
+        self.role_permissions[role_name] = set(permissions)
+    
+    def assign_user_role(self, user_id: str, role_name: str):
+        """Assign role to user"""
+        self.user_roles[user_id] = role_name
+    
+    def check_access(self, user_id: str, resource: str, operation: str) -> bool:
+        """Check if user has access to perform operation on resource"""
+        user_role = self.user_roles.get(user_id)
+        if not user_role:
+            return False
+        
+        permissions = self.role_permissions.get(user_role, set())
+        required_permission = f"{operation}:{resource}"
+        has_access = required_permission in permissions or f"{operation}:*" in permissions
+        
+        # Log access attempt
+        self.access_logs.append({
+            'timestamp': datetime.now(),
+            'user_id': user_id,
+            'resource': resource,
+            'operation': operation,
+            'granted': has_access
+        })
+        
+        return has_access
+
+class GDPRComplianceManager:
+    """Manages GDPR compliance requirements"""
+    
+    def __init__(self):
+        self.data_subjects = {}
+        self.consent_records = {}
+        self.breach_incidents = []
+        self.logger = logging.getLogger(__name__)
+    
+    def register_data_subject(self, subject_id: str, personal_data: Dict[str, Any]):
+        """Register a data subject"""
+        self.data_subjects[subject_id] = {
+            'subject_id': subject_id,
+            'personal_data': personal_data,
+            'registered_at': datetime.now(),
+            'consent_status': {}
+        }
+    
+    def record_consent(self, subject_id: str, purpose: str, consent_given: bool):
+        """Record consent for data processing"""
+        consent_id = str(uuid.uuid4())
+        self.consent_records[consent_id] = {
+            'subject_id': subject_id,
+            'purpose': purpose,
+            'consent_given': consent_given,
+            'timestamp': datetime.now()
+        }
+        
+        if subject_id in self.data_subjects:
+            self.data_subjects[subject_id]['consent_status'][purpose] = consent_given
+    
+    def handle_erasure_request(self, subject_id: str) -> Dict[str, Any]:
+        """Handle right to be forgotten request"""
+        if subject_id not in self.data_subjects:
+            return {'status': 'error', 'message': 'Data subject not found'}
+        
+        # Remove data subject
+        del self.data_subjects[subject_id]
+        
+        # Remove related consent records
+        to_remove = [cid for cid, record in self.consent_records.items() 
+                    if record['subject_id'] == subject_id]
+        for cid in to_remove:
+            del self.consent_records[cid]
+        
+        return {
+            'status': 'success',
+            'message': 'Data subject data erased',
+            'processed_at': datetime.now()
+        }
+    
+    def report_data_breach(self, breach_details: Dict[str, Any]):
+        """Report a data breach incident"""
+        breach_record = {
+            'breach_id': str(uuid.uuid4()),
+            'reported_at': datetime.now(),
+            'details': breach_details,
+            'status': 'reported'
+        }
+        self.breach_incidents.append(breach_record)
+        self.logger.critical(f"Data breach reported: {breach_record['breach_id']}")
+
+# Example usage
+def example_privacy_security_system():
+    """Example of comprehensive privacy and security system"""
+    
+    # Sample dataset with PII
+    sample_data = pd.DataFrame({
+        'customer_id': [1, 2, 3, 4, 5],
+        'name': ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson'],
+        'email': ['john.doe@email.com', 'jane.smith@company.org', 'bob.j@test.net', 
+                 'alice.brown@example.com', 'charlie.w@domain.co'],
+        'phone': ['555-123-4567', '555-987-6543', '555-555-1234', '555-111-2222', '555-999-8888'],
+        'ssn': ['123-45-6789', '987-65-4321', '555-44-3333', '111-22-3333', '999-88-7777']
+    })
+    
+    # Initialize components
+    classifier = DataClassifier()
+    masker = DataMasker()
+    encryption_manager = EncryptionManager()
+    access_manager = AccessControlManager()
+    gdpr_manager = GDPRComplianceManager()
+    
+    # Classify dataset
+    classification_result = classifier.classify_dataset(sample_data)
+    print(f"Overall Classification: {classification_result['overall_classification'].value}")
+    print(f"PII Types Found: {list(classification_result['pii_summary'].keys())}")
+    
+    # Apply masking
+    masked_data = sample_data.copy()
+    for column, col_info in classification_result['column_classifications'].items():
+        for pii_info in col_info['detected_pii']:
+            pii_type = PIIType(pii_info['pii_type'])
+            masked_data = masker.apply_masking(masked_data, column, pii_type)
+    
+    print("\nMasked Data Sample:")
+    print(f"Original: {sample_data['email'].iloc[0]}")
+    print(f"Masked: {masked_data['email'].iloc[0]}")
+    
+    # Set up access control
+    access_manager.create_role('analyst', ['read:customer_data'])
+    access_manager.create_role('admin', ['read:*', 'write:*'])
+    access_manager.assign_user_role('user1', 'analyst')
+    
+    # Test access
+    has_access = access_manager.check_access('user1', 'customer_data', 'read')
+    print(f"\nAccess granted: {has_access}")
+    
+    # GDPR compliance
+    gdpr_manager.register_data_subject('subject1', {'name': 'John Doe', 'email': 'john@example.com'})
+    gdpr_manager.record_consent('subject1', 'marketing', True)
+    
+    print("GDPR compliance system initialized")
+    
+    return {
+        'classifier': classifier,
+        'masker': masker,
+        'encryption_manager': encryption_manager,
+        'access_manager': access_manager,
+        'gdpr_manager': gdpr_manager
+    }
+
+# components = example_privacy_security_system()
+```
+
+## Best Practices and Implementation Guidelines
+
+### Security Best Practices
+
+1. **Data Classification**
+   - Implement automated PII detection
+   - Classify data based on sensitivity levels
+   - Apply appropriate protection measures
+   - Regular classification reviews
+
+2. **Access Control**
+   - Principle of least privilege
+   - Role-based access control (RBAC)
+   - Regular access reviews and audits
+   - Multi-factor authentication
+
+3. **Data Protection**
+   - Encryption at rest and in transit
+   - Data masking for non-production
+   - Secure key management
+   - Regular security assessments
+
+4. **Compliance Management**
+   - GDPR and privacy law compliance
+   - Data retention policies
+   - Breach notification procedures
+   - Subject rights management
+
+## Common Use Cases
+
+### Business Applications
+- **Regulatory Compliance** - Meet GDPR, CCPA, HIPAA requirements
+- **Data Protection** - Secure sensitive customer information
+- **Risk Management** - Identify and mitigate data security risks
+- **Audit Support** - Provide audit trails and compliance reports
+
+### Technical Benefits
+- **Automated Classification** - Reduce manual effort in data classification
+- **Consistent Protection** - Apply uniform security measures
+- **Incident Response** - Quick response to security incidents
+- **Privacy by Design** - Build privacy into data systems
+
+## Summary
+
+Data Privacy and Security provides:
+
+- **Automated Classification** - Identify and classify sensitive data
+- **Protection Mechanisms** - Encryption, masking, and access controls
+- **Compliance Framework** - GDPR and regulatory compliance
+- **Incident Management** - Breach detection and response
+
+Key components:
+- Data classification and PII detection
+- Encryption and masking techniques
+- Access control and audit logging
+- GDPR compliance management
+
+---
+
+**Next**: Continue with [Monitoring and Observability](/chapters/monitoring-observability) for comprehensive system monitoring.

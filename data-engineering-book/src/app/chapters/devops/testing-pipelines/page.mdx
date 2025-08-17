@@ -1,0 +1,709 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Testing Data Pipelines
+
+Testing data pipelines ensures reliability, correctness, and performance of data workflows. This involves multiple testing layers including unit tests, integration tests, data quality tests, and end-to-end validation to maintain pipeline integrity across different environments and data scenarios.
+
+## Data Pipeline Testing Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Test Development"
+        TD1[Unit Tests]
+        TD2[Integration Tests]
+        TD3[Data Quality Tests]
+        TD4[Performance Tests]
+    end
+    
+    subgraph "Test Data Management"
+        TDM1[Test Data Generation]
+        TDM2[Data Fixtures]
+        TDM3[Mock Data Sources]
+        TDM4[Data Anonymization]
+    end
+    
+    subgraph "Test Execution"
+        TE1[Test Runner]
+        TE2[Parallel Execution]
+        TE3[Environment Setup]
+        TE4[Cleanup Procedures]
+    end
+    
+    subgraph "Validation & Reporting"
+        VR1[Result Validation]
+        VR2[Coverage Analysis]
+        VR3[Performance Metrics]
+        VR4[Test Reports]
+    end
+    
+    subgraph "Continuous Testing"
+        CT1[Automated Testing]
+        CT2[Regression Testing]
+        CT3[Monitoring Integration]
+        CT4[Feedback Loop]
+    end
+    
+    TD1 --> TDM1
+    TD2 --> TDM2
+    TD3 --> TDM3
+    TD4 --> TDM4
+    
+    TDM1 --> TE1
+    TDM2 --> TE2
+    TDM3 --> TE3
+    TDM4 --> TE4
+    
+    TE1 --> VR1
+    TE2 --> VR2
+    TE3 --> VR3
+    TE4 --> VR4
+    
+    VR1 --> CT1
+    VR2 --> CT2
+    VR3 --> CT3
+    VR4 --> CT4
+    
+    style TD1 fill:#e3f2fd
+    style TDM1 fill:#e8f5e8
+    style TE1 fill:#fff3e0
+    style VR1 fill:#f3e5f5
+    style CT1 fill:#fce4ec
+`} />
+
+## Comprehensive Pipeline Testing Framework
+
+### Core Testing Infrastructure
+
+```python
+# Comprehensive Data Pipeline Testing Framework
+import os
+import json
+import pandas as pd
+import numpy as np
+import pytest
+import unittest
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Callable, Tuple
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+import logging
+import tempfile
+import shutil
+from abc import ABC, abstractmethod
+from unittest.mock import Mock, patch
+import sqlite3
+import yaml
+
+class TestType(Enum):
+    """Test type enumeration"""
+    UNIT = "unit"
+    INTEGRATION = "integration"
+    DATA_QUALITY = "data_quality"
+    PERFORMANCE = "performance"
+    END_TO_END = "end_to_end"
+
+class TestStatus(Enum):
+    """Test execution status"""
+    PENDING = "pending"
+    RUNNING = "running"
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+@dataclass
+class TestCase:
+    """Test case definition"""
+    test_id: str
+    name: str
+    description: str
+    test_type: TestType
+    test_function: Callable
+    setup_function: Optional[Callable] = None
+    teardown_function: Optional[Callable] = None
+    test_data: Dict[str, Any] = field(default_factory=dict)
+    expected_results: Dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = 300
+    tags: List[str] = field(default_factory=list)
+
+@dataclass
+class TestResult:
+    """Test execution result"""
+    test_id: str
+    status: TestStatus
+    execution_time: float
+    error_message: Optional[str] = None
+    output_data: Dict[str, Any] = field(default_factory=dict)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    logs: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'test_id': self.test_id,
+            'status': self.status.value,
+            'execution_time': self.execution_time,
+            'error_message': self.error_message,
+            'output_data': self.output_data,
+            'metrics': self.metrics,
+            'logs_count': len(self.logs)
+        }
+
+class TestDataGenerator:
+    """Generate test data for pipeline testing"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def generate_customer_data(self, num_records: int = 1000) -> pd.DataFrame:
+        """Generate synthetic customer data"""
+        np.random.seed(42)  # For reproducible tests
+        
+        data = {
+            'customer_id': range(1, num_records + 1),
+            'first_name': [f'Customer_{i}' for i in range(1, num_records + 1)],
+            'last_name': [f'LastName_{i}' for i in range(1, num_records + 1)],
+            'email': [f'customer_{i}@example.com' for i in range(1, num_records + 1)],
+            'age': np.random.randint(18, 80, num_records),
+            'signup_date': pd.date_range('2020-01-01', periods=num_records, freq='D'),
+            'total_purchases': np.random.uniform(0, 10000, num_records).round(2),
+            'is_active': np.random.choice([True, False], num_records, p=[0.8, 0.2])
+        }
+        
+        return pd.DataFrame(data)
+    
+    def generate_sales_data(self, num_records: int = 5000) -> pd.DataFrame:
+        """Generate synthetic sales data"""
+        np.random.seed(42)
+        
+        data = {
+            'transaction_id': range(1, num_records + 1),
+            'customer_id': np.random.randint(1, 1001, num_records),
+            'product_id': np.random.randint(1, 101, num_records),
+            'quantity': np.random.randint(1, 10, num_records),
+            'unit_price': np.random.uniform(10, 500, num_records).round(2),
+            'transaction_date': pd.date_range('2020-01-01', periods=num_records, freq='H'),
+            'payment_method': np.random.choice(['credit_card', 'debit_card', 'cash'], num_records)
+        }
+        
+        df = pd.DataFrame(data)
+        df['total_amount'] = df['quantity'] * df['unit_price']
+        
+        return df
+    
+    def introduce_data_quality_issues(self, df: pd.DataFrame, 
+                                    missing_rate: float = 0.05,
+                                    duplicate_rate: float = 0.02) -> pd.DataFrame:
+        """Introduce data quality issues for testing"""
+        df_with_issues = df.copy()
+        
+        # Introduce missing values
+        for column in df_with_issues.select_dtypes(include=[np.number]).columns:
+            missing_indices = np.random.choice(
+                df_with_issues.index, 
+                size=int(len(df_with_issues) * missing_rate), 
+                replace=False
+            )
+            df_with_issues.loc[missing_indices, column] = np.nan
+        
+        # Introduce duplicates
+        duplicate_count = int(len(df_with_issues) * duplicate_rate)
+        duplicate_indices = np.random.choice(df_with_issues.index, size=duplicate_count, replace=False)
+        duplicates = df_with_issues.loc[duplicate_indices].copy()
+        df_with_issues = pd.concat([df_with_issues, duplicates], ignore_index=True)
+        
+        return df_with_issues
+
+class MockDataSource:
+    """Mock data source for testing"""
+    
+    def __init__(self, data: pd.DataFrame):
+        self.data = data
+        self.connection_count = 0
+        self.query_count = 0
+    
+    def connect(self):
+        """Mock connection"""
+        self.connection_count += 1
+        return self
+    
+    def query(self, sql: str) -> pd.DataFrame:
+        """Mock query execution"""
+        self.query_count += 1
+        
+        # Simple query simulation
+        if 'SELECT * FROM customers' in sql.upper():
+            return self.data
+        elif 'COUNT(*)' in sql.upper():
+            return pd.DataFrame({'count': [len(self.data)]})
+        else:
+            return self.data.head(10)  # Default response
+    
+    def close(self):
+        """Mock connection close"""
+        pass
+
+class PipelineTestRunner:
+    """Main pipeline test runner"""
+    
+    def __init__(self, test_data_dir: str = None):
+        self.test_cases: Dict[str, TestCase] = {}
+        self.test_results: Dict[str, TestResult] = {}
+        self.test_data_generator = TestDataGenerator()
+        self.test_data_dir = test_data_dir or tempfile.mkdtemp()
+        self.logger = logging.getLogger(__name__)
+        
+        # Ensure test data directory exists
+        Path(self.test_data_dir).mkdir(parents=True, exist_ok=True)
+    
+    def register_test(self, test_case: TestCase):
+        """Register a test case"""
+        self.test_cases[test_case.test_id] = test_case
+        self.logger.info(f"Registered test case: {test_case.test_id}")
+    
+    def run_test(self, test_id: str) -> TestResult:
+        """Run a single test case"""
+        if test_id not in self.test_cases:
+            raise ValueError(f"Test case not found: {test_id}")
+        
+        test_case = self.test_cases[test_id]
+        start_time = datetime.now()
+        
+        result = TestResult(
+            test_id=test_id,
+            status=TestStatus.RUNNING,
+            execution_time=0.0
+        )
+        
+        try:
+            # Setup
+            if test_case.setup_function:
+                test_case.setup_function()
+                result.logs.append("Setup completed")
+            
+            # Execute test
+            test_output = test_case.test_function(test_case.test_data)
+            result.output_data = test_output if isinstance(test_output, dict) else {}
+            
+            # Validate results
+            if test_case.expected_results:
+                self._validate_test_results(test_output, test_case.expected_results)
+            
+            result.status = TestStatus.PASSED
+            result.logs.append("Test passed")
+            
+        except Exception as e:
+            result.status = TestStatus.FAILED
+            result.error_message = str(e)
+            result.logs.append(f"Test failed: {str(e)}")
+            self.logger.error(f"Test {test_id} failed: {e}")
+        
+        finally:
+            # Teardown
+            if test_case.teardown_function:
+                try:
+                    test_case.teardown_function()
+                    result.logs.append("Teardown completed")
+                except Exception as e:
+                    result.logs.append(f"Teardown failed: {str(e)}")
+            
+            # Calculate execution time
+            end_time = datetime.now()
+            result.execution_time = (end_time - start_time).total_seconds()
+        
+        self.test_results[test_id] = result
+        return result
+    
+    def run_test_suite(self, test_type: TestType = None, tags: List[str] = None) -> Dict[str, TestResult]:
+        """Run multiple test cases"""
+        results = {}
+        
+        # Filter test cases
+        test_cases_to_run = self.test_cases.values()
+        
+        if test_type:
+            test_cases_to_run = [tc for tc in test_cases_to_run if tc.test_type == test_type]
+        
+        if tags:
+            test_cases_to_run = [
+                tc for tc in test_cases_to_run 
+                if any(tag in tc.tags for tag in tags)
+            ]
+        
+        self.logger.info(f"Running {len(test_cases_to_run)} test cases")
+        
+        # Execute tests
+        for test_case in test_cases_to_run:
+            result = self.run_test(test_case.test_id)
+            results[test_case.test_id] = result
+        
+        return results
+    
+    def _validate_test_results(self, actual: Any, expected: Dict[str, Any]):
+        """Validate test results against expected outcomes"""
+        if isinstance(actual, pd.DataFrame):
+            # DataFrame validation
+            if 'row_count' in expected:
+                assert len(actual) == expected['row_count'], f"Expected {expected['row_count']} rows, got {len(actual)}"
+            
+            if 'columns' in expected:
+                assert list(actual.columns) == expected['columns'], f"Column mismatch"
+            
+            if 'data_types' in expected:
+                for col, expected_type in expected['data_types'].items():
+                    assert str(actual[col].dtype) == expected_type, f"Type mismatch for {col}"
+        
+        elif isinstance(actual, dict):
+            # Dictionary validation
+            for key, expected_value in expected.items():
+                assert key in actual, f"Missing key: {key}"
+                assert actual[key] == expected_value, f"Value mismatch for {key}"
+    
+    def generate_test_report(self) -> Dict[str, Any]:
+        """Generate comprehensive test report"""
+        if not self.test_results:
+            return {'message': 'No test results available'}
+        
+        results = list(self.test_results.values())
+        
+        # Calculate statistics
+        total_tests = len(results)
+        passed_tests = len([r for r in results if r.status == TestStatus.PASSED])
+        failed_tests = len([r for r in results if r.status == TestStatus.FAILED])
+        skipped_tests = len([r for r in results if r.status == TestStatus.SKIPPED])
+        
+        success_rate = passed_tests / total_tests if total_tests > 0 else 0
+        avg_execution_time = sum(r.execution_time for r in results) / total_tests if total_tests > 0 else 0
+        
+        # Group by test type
+        results_by_type = {}
+        for result in results:
+            test_case = self.test_cases[result.test_id]
+            test_type = test_case.test_type.value
+            
+            if test_type not in results_by_type:
+                results_by_type[test_type] = {'passed': 0, 'failed': 0, 'total': 0}
+            
+            results_by_type[test_type]['total'] += 1
+            if result.status == TestStatus.PASSED:
+                results_by_type[test_type]['passed'] += 1
+            elif result.status == TestStatus.FAILED:
+                results_by_type[test_type]['failed'] += 1
+        
+        return {
+            'summary': {
+                'total_tests': total_tests,
+                'passed_tests': passed_tests,
+                'failed_tests': failed_tests,
+                'skipped_tests': skipped_tests,
+                'success_rate': success_rate,
+                'average_execution_time': avg_execution_time
+            },
+            'results_by_type': results_by_type,
+            'failed_tests': [
+                {
+                    'test_id': r.test_id,
+                    'error_message': r.error_message,
+                    'execution_time': r.execution_time
+                }
+                for r in results if r.status == TestStatus.FAILED
+            ],
+            'generated_at': datetime.now().isoformat()
+        }
+
+# Example test implementations
+class DataPipelineTests:
+    """Example data pipeline test implementations"""
+    
+    def __init__(self, test_runner: PipelineTestRunner):
+        self.test_runner = test_runner
+        self.test_data_generator = TestDataGenerator()
+    
+    def setup_unit_tests(self):
+        """Setup unit tests for data pipeline components"""
+        
+        # Test data transformation function
+        def test_customer_data_transformation(test_data):
+            """Test customer data transformation logic"""
+            input_data = test_data['input_df']
+            
+            # Apply transformation (example)
+            result_df = input_data.copy()
+            result_df['full_name'] = result_df['first_name'] + ' ' + result_df['last_name']
+            result_df['age_group'] = pd.cut(result_df['age'], 
+                                          bins=[0, 25, 35, 50, 100], 
+                                          labels=['Young', 'Adult', 'Middle', 'Senior'])
+            
+            return {
+                'transformed_df': result_df,
+                'row_count': len(result_df),
+                'new_columns': ['full_name', 'age_group']
+            }
+        
+        # Register unit test
+        customer_data = self.test_data_generator.generate_customer_data(100)
+        
+        unit_test = TestCase(
+            test_id='unit_customer_transformation',
+            name='Customer Data Transformation',
+            description='Test customer data transformation logic',
+            test_type=TestType.UNIT,
+            test_function=test_customer_data_transformation,
+            test_data={'input_df': customer_data},
+            expected_results={
+                'row_count': 100,
+                'new_columns': ['full_name', 'age_group']
+            },
+            tags=['transformation', 'customer']
+        )
+        
+        self.test_runner.register_test(unit_test)
+    
+    def setup_integration_tests(self):
+        """Setup integration tests"""
+        
+        def test_end_to_end_pipeline(test_data):
+            """Test complete pipeline integration"""
+            # Mock data source
+            mock_source = MockDataSource(test_data['source_data'])
+            
+            # Simulate pipeline steps
+            raw_data = mock_source.query("SELECT * FROM customers")
+            
+            # Data cleaning
+            cleaned_data = raw_data.dropna()
+            
+            # Data aggregation
+            aggregated_data = cleaned_data.groupby('is_active').agg({
+                'customer_id': 'count',
+                'total_purchases': 'sum'
+            }).reset_index()
+            
+            return {
+                'raw_count': len(raw_data),
+                'cleaned_count': len(cleaned_data),
+                'aggregated_count': len(aggregated_data),
+                'connection_count': mock_source.connection_count
+            }
+        
+        # Register integration test
+        source_data = self.test_data_generator.generate_customer_data(500)
+        
+        integration_test = TestCase(
+            test_id='integration_end_to_end',
+            name='End-to-End Pipeline Integration',
+            description='Test complete pipeline from source to output',
+            test_type=TestType.INTEGRATION,
+            test_function=test_end_to_end_pipeline,
+            test_data={'source_data': source_data},
+            expected_results={
+                'raw_count': 500,
+                'aggregated_count': 2  # Active and inactive groups
+            },
+            tags=['integration', 'end-to-end']
+        )
+        
+        self.test_runner.register_test(integration_test)
+    
+    def setup_data_quality_tests(self):
+        """Setup data quality tests"""
+        
+        def test_data_completeness(test_data):
+            """Test data completeness"""
+            df = test_data['input_df']
+            
+            completeness_scores = {}
+            for column in df.columns:
+                non_null_count = df[column].notna().sum()
+                completeness_scores[column] = non_null_count / len(df)
+            
+            overall_completeness = sum(completeness_scores.values()) / len(completeness_scores)
+            
+            return {
+                'overall_completeness': overall_completeness,
+                'column_completeness': completeness_scores,
+                'total_rows': len(df)
+            }
+        
+        def test_data_uniqueness(test_data):
+            """Test data uniqueness"""
+            df = test_data['input_df']
+            
+            # Check for duplicates
+            duplicate_count = df.duplicated().sum()
+            uniqueness_rate = (len(df) - duplicate_count) / len(df)
+            
+            return {
+                'duplicate_count': duplicate_count,
+                'uniqueness_rate': uniqueness_rate,
+                'total_rows': len(df)
+            }
+        
+        # Generate data with quality issues
+        clean_data = self.test_data_generator.generate_customer_data(1000)
+        data_with_issues = self.test_data_generator.introduce_data_quality_issues(clean_data)
+        
+        # Register data quality tests
+        completeness_test = TestCase(
+            test_id='dq_completeness',
+            name='Data Completeness Check',
+            description='Validate data completeness across all columns',
+            test_type=TestType.DATA_QUALITY,
+            test_function=test_data_completeness,
+            test_data={'input_df': data_with_issues},
+            expected_results={'overall_completeness': 0.9},  # Expect at least 90%
+            tags=['data_quality', 'completeness']
+        )
+        
+        uniqueness_test = TestCase(
+            test_id='dq_uniqueness',
+            name='Data Uniqueness Check',
+            description='Validate data uniqueness and detect duplicates',
+            test_type=TestType.DATA_QUALITY,
+            test_function=test_data_uniqueness,
+            test_data={'input_df': data_with_issues},
+            expected_results={'uniqueness_rate': 0.95},  # Expect at least 95%
+            tags=['data_quality', 'uniqueness']
+        )
+        
+        self.test_runner.register_test(completeness_test)
+        self.test_runner.register_test(uniqueness_test)
+    
+    def setup_performance_tests(self):
+        """Setup performance tests"""
+        
+        def test_large_dataset_processing(test_data):
+            """Test processing performance with large dataset"""
+            start_time = datetime.now()
+            
+            df = test_data['large_df']
+            
+            # Simulate heavy processing
+            result = df.groupby('customer_id').agg({
+                'total_purchases': ['sum', 'mean', 'count']
+            })
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            
+            return {
+                'processing_time': processing_time,
+                'input_rows': len(df),
+                'output_rows': len(result),
+                'throughput': len(df) / processing_time if processing_time > 0 else 0
+            }
+        
+        # Generate large dataset
+        large_dataset = self.test_data_generator.generate_customer_data(10000)
+        
+        performance_test = TestCase(
+            test_id='perf_large_dataset',
+            name='Large Dataset Processing Performance',
+            description='Test processing performance with large dataset',
+            test_type=TestType.PERFORMANCE,
+            test_function=test_large_dataset_processing,
+            test_data={'large_df': large_dataset},
+            expected_results={'processing_time': 5.0},  # Max 5 seconds
+            tags=['performance', 'scalability']
+        )
+        
+        self.test_runner.register_test(performance_test)
+
+# Example usage
+def example_pipeline_testing():
+    """Example of comprehensive pipeline testing"""
+    
+    # Initialize test runner
+    test_runner = PipelineTestRunner()
+    
+    # Setup test cases
+    pipeline_tests = DataPipelineTests(test_runner)
+    pipeline_tests.setup_unit_tests()
+    pipeline_tests.setup_integration_tests()
+    pipeline_tests.setup_data_quality_tests()
+    pipeline_tests.setup_performance_tests()
+    
+    print("=== DATA PIPELINE TESTING SIMULATION ===")
+    
+    # Run all tests
+    all_results = test_runner.run_test_suite()
+    
+    print(f"\nExecuted {len(all_results)} tests")
+    
+    # Run tests by type
+    print("\n=== RUNNING TESTS BY TYPE ===")
+    
+    for test_type in TestType:
+        type_results = test_runner.run_test_suite(test_type=test_type)
+        if type_results:
+            passed = len([r for r in type_results.values() if r.status == TestStatus.PASSED])
+            total = len(type_results)
+            print(f"{test_type.value.title()} Tests: {passed}/{total} passed")
+    
+    # Generate comprehensive report
+    report = test_runner.generate_test_report()
+    
+    print(f"\n=== TEST REPORT ===")
+    print(f"Total tests: {report['summary']['total_tests']}")
+    print(f"Success rate: {report['summary']['success_rate']:.1%}")
+    print(f"Average execution time: {report['summary']['average_execution_time']:.2f}s")
+    
+    if report['failed_tests']:
+        print(f"\nFailed tests:")
+        for failed_test in report['failed_tests']:
+            print(f"  - {failed_test['test_id']}: {failed_test['error_message']}")
+    
+    print(f"\nResults by type:")
+    for test_type, stats in report['results_by_type'].items():
+        success_rate = stats['passed'] / stats['total'] if stats['total'] > 0 else 0
+        print(f"  {test_type}: {stats['passed']}/{stats['total']} ({success_rate:.1%})")
+    
+    return test_runner, report
+
+# test_runner, report = example_pipeline_testing()
+```
+
+## Best Practices
+
+### Testing Strategy Guidelines
+
+1. **Test Pyramid Implementation**
+   - Implement comprehensive unit tests for individual components
+   - Create integration tests for component interactions
+   - Develop end-to-end tests for complete workflows
+   - Use performance tests for scalability validation
+
+2. **Test Data Management**
+   - Generate synthetic test data for consistent testing
+   - Implement data anonymization for production-like testing
+   - Use data fixtures for repeatable test scenarios
+   - Maintain test data versioning and lineage
+
+3. **Automated Testing Integration**
+   - Integrate tests into CI/CD pipelines
+   - Implement automated test execution on code changes
+   - Use parallel test execution for faster feedback
+   - Maintain test result history and trends
+
+4. **Quality Assurance**
+   - Implement data quality validation tests
+   - Test error handling and edge cases
+   - Validate performance under different load conditions
+   - Ensure test coverage across all pipeline components
+
+## Summary
+
+Testing Data Pipelines provides:
+
+- **Comprehensive Test Framework** - Multi-layered testing approach for data pipelines
+- **Test Data Management** - Synthetic data generation and quality issue simulation
+- **Automated Test Execution** - Parallel test running with detailed reporting
+- **Quality Validation** - Data quality, performance, and integration testing
+
+Key components:
+- Test case registration and execution system
+- Mock data sources and test data generators
+- Result validation and comprehensive reporting
+- Performance and scalability testing capabilities
+
+---
+
+**Next**: Continue with [Case Studies and Best Practices](/chapters/case-studies) for real-world implementation examples.

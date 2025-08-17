@@ -1,0 +1,750 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Event-Driven Architecture
+
+Event-Driven Architecture (EDA) is a software design pattern where system components communicate through the production, detection, and consumption of events. This approach enables loose coupling, scalability, and real-time responsiveness in distributed systems.
+
+## Architecture Overview
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Event Producers"
+        EP1[Web Applications]
+        EP2[Mobile Apps]
+        EP3[IoT Devices]
+        EP4[Microservices]
+        EP5[Databases]
+    end
+    
+    subgraph "Event Infrastructure"
+        EB[Event Bus/Broker]
+        ES[Event Store]
+        ER[Event Router]
+        EF[Event Filters]
+    end
+    
+    subgraph "Event Processing"
+        ESP1[Stream Processors]
+        ESP2[Event Handlers]
+        ESP3[Aggregators]
+        ESP4[Transformers]
+    end
+    
+    subgraph "Event Consumers"
+        EC1[Analytics Services]
+        EC2[Notification Services]
+        EC3[Audit Services]
+        EC4[Reporting Services]
+        EC5[ML Pipelines]
+    end
+    
+    EP1 --> EB
+    EP2 --> EB
+    EP3 --> EB
+    EP4 --> EB
+    EP5 --> EB
+    
+    EB --> ES
+    EB --> ER
+    ER --> EF
+    
+    EF --> ESP1
+    EF --> ESP2
+    ESP1 --> ESP3
+    ESP2 --> ESP4
+    
+    ESP3 --> EC1
+    ESP4 --> EC2
+    ESP1 --> EC3
+    ESP2 --> EC4
+    ESP3 --> EC5
+    
+    style EB fill:#e3f2fd
+    style ESP1 fill:#e8f5e8
+    style EC1 fill:#fff3e0
+`} />
+
+## Core Components Implementation
+
+### Event Infrastructure
+
+```python
+# Event-driven architecture implementation
+import asyncio
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import Dict, List, Any, Callable, Optional
+from dataclasses import dataclass, asdict
+from abc import ABC, abstractmethod
+import logging
+from enum import Enum
+
+# Event models
+@dataclass
+class Event:
+    """Base event class"""
+    event_id: str
+    event_type: str
+    source: str
+    timestamp: datetime
+    data: Dict[str, Any]
+    version: str = "1.0"
+    correlation_id: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        """Convert event to dictionary"""
+        event_dict = asdict(self)
+        event_dict['timestamp'] = self.timestamp.isoformat()
+        return event_dict
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Event':
+        """Create event from dictionary"""
+        data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+        return cls(**data)
+
+class EventType(Enum):
+    """Common event types"""
+    USER_CREATED = "user.created"
+    USER_UPDATED = "user.updated"
+    ORDER_PLACED = "order.placed"
+    ORDER_SHIPPED = "order.shipped"
+    PAYMENT_PROCESSED = "payment.processed"
+    INVENTORY_UPDATED = "inventory.updated"
+
+# Event bus interface
+class EventBus(ABC):
+    """Abstract event bus interface"""
+    
+    @abstractmethod
+    async def publish(self, event: Event) -> None:
+        """Publish event"""
+        pass
+    
+    @abstractmethod
+    async def subscribe(self, event_type: str, handler: Callable[[Event], None]) -> None:
+        """Subscribe to event type"""
+        pass
+
+# In-memory event bus implementation
+class InMemoryEventBus(EventBus):
+    """In-memory event bus for testing/development"""
+    
+    def __init__(self):
+        self.handlers: Dict[str, List[Callable]] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    async def publish(self, event: Event) -> None:
+        """Publish event to subscribers"""
+        
+        if event.event_type in self.handlers:
+            for handler in self.handlers[event.event_type]:
+                try:
+                    await handler(event)
+                except Exception as e:
+                    self.logger.error(f"Handler error: {e}")
+        
+        self.logger.info(f"Event published: {event.event_id}")
+    
+    async def subscribe(self, event_type: str, handler: Callable[[Event], None]) -> None:
+        """Subscribe to event type"""
+        
+        if event_type not in self.handlers:
+            self.handlers[event_type] = []
+        
+        self.handlers[event_type].append(handler)
+        self.logger.info(f"Handler subscribed to {event_type}")
+
+# Event handler base class
+class EventHandler(ABC):
+    """Base event handler"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    @abstractmethod
+    async def handle(self, event: Event) -> None:
+        """Handle event"""
+        pass
+
+# Example event handlers
+class UserEventHandler(EventHandler):
+    """Handle user-related events"""
+    
+    async def handle(self, event: Event) -> None:
+        """Handle user events"""
+        
+        if event.event_type == EventType.USER_CREATED.value:
+            await self._handle_user_created(event)
+        elif event.event_type == EventType.USER_UPDATED.value:
+            await self._handle_user_updated(event)
+    
+    async def _handle_user_created(self, event: Event) -> None:
+        """Handle user created event"""
+        
+        user_data = event.data
+        self.logger.info(f"User created: {user_data['user_id']}")
+        
+        # Example: Send welcome email
+        await self._send_welcome_email(user_data)
+        
+        # Example: Create user profile
+        await self._create_user_profile(user_data)
+    
+    async def _handle_user_updated(self, event: Event) -> None:
+        """Handle user updated event"""
+        
+        user_data = event.data
+        self.logger.info(f"User updated: {user_data['user_id']}")
+        
+        # Example: Update search index
+        await self._update_search_index(user_data)
+    
+    async def _send_welcome_email(self, user_data: Dict) -> None:
+        """Send welcome email"""
+        # Implementation would integrate with email service
+        self.logger.info(f"Welcome email sent to {user_data['email']}")
+    
+    async def _create_user_profile(self, user_data: Dict) -> None:
+        """Create user profile"""
+        # Implementation would create profile in database
+        self.logger.info(f"User profile created for {user_data['user_id']}")
+    
+    async def _update_search_index(self, user_data: Dict) -> None:
+        """Update search index"""
+        # Implementation would update Elasticsearch
+        self.logger.info(f"Search index updated for {user_data['user_id']}")
+
+class OrderEventHandler(EventHandler):
+    """Handle order-related events"""
+    
+    async def handle(self, event: Event) -> None:
+        """Handle order events"""
+        
+        if event.event_type == EventType.ORDER_PLACED.value:
+            await self._handle_order_placed(event)
+        elif event.event_type == EventType.ORDER_SHIPPED.value:
+            await self._handle_order_shipped(event)
+    
+    async def _handle_order_placed(self, event: Event) -> None:
+        """Handle order placed event"""
+        
+        order_data = event.data
+        self.logger.info(f"Order placed: {order_data['order_id']}")
+        
+        # Example: Update inventory
+        await self._update_inventory(order_data)
+        
+        # Example: Process payment
+        await self._process_payment(order_data)
+        
+        # Example: Send confirmation
+        await self._send_order_confirmation(order_data)
+    
+    async def _handle_order_shipped(self, event: Event) -> None:
+        """Handle order shipped event"""
+        
+        order_data = event.data
+        self.logger.info(f"Order shipped: {order_data['order_id']}")
+        
+        # Example: Send tracking info
+        await self._send_tracking_info(order_data)
+    
+    async def _update_inventory(self, order_data: Dict) -> None:
+        """Update inventory"""
+        self.logger.info(f"Inventory updated for order {order_data['order_id']}")
+    
+    async def _process_payment(self, order_data: Dict) -> None:
+        """Process payment"""
+        self.logger.info(f"Payment processed for order {order_data['order_id']}")
+    
+    async def _send_order_confirmation(self, order_data: Dict) -> None:
+        """Send order confirmation"""
+        self.logger.info(f"Order confirmation sent for {order_data['order_id']}")
+    
+    async def _send_tracking_info(self, order_data: Dict) -> None:
+        """Send tracking information"""
+        self.logger.info(f"Tracking info sent for {order_data['order_id']}")
+```
+
+## Event Sourcing Pattern
+
+### Event Store Implementation
+
+```python
+# Event sourcing implementation
+class EventStore:
+    """Simple in-memory event store"""
+    
+    def __init__(self):
+        self.events: List[Event] = []
+        self.streams: Dict[str, List[Event]] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    async def append_event(self, stream_id: str, event: Event) -> None:
+        """Append event to stream"""
+        
+        if stream_id not in self.streams:
+            self.streams[stream_id] = []
+        
+        self.streams[stream_id].append(event)
+        self.events.append(event)
+        
+        self.logger.info(f"Event appended to stream {stream_id}: {event.event_id}")
+    
+    async def get_stream_events(self, stream_id: str) -> List[Event]:
+        """Get all events for a stream"""
+        
+        return self.streams.get(stream_id, [])
+    
+    async def get_events_by_type(self, event_type: str) -> List[Event]:
+        """Get events by type"""
+        
+        return [event for event in self.events if event.event_type == event_type]
+
+# Aggregate base class
+class Aggregate(ABC):
+    """Base aggregate for event sourcing"""
+    
+    def __init__(self, aggregate_id: str):
+        self.aggregate_id = aggregate_id
+        self.version = 0
+        self.uncommitted_events: List[Event] = []
+    
+    def apply_event(self, event: Event) -> None:
+        """Apply event to aggregate"""
+        self.version += 1
+        self._apply(event)
+    
+    def raise_event(self, event: Event) -> None:
+        """Raise new event"""
+        self.apply_event(event)
+        self.uncommitted_events.append(event)
+    
+    @abstractmethod
+    def _apply(self, event: Event) -> None:
+        """Apply event to aggregate state"""
+        pass
+    
+    def get_uncommitted_events(self) -> List[Event]:
+        """Get uncommitted events"""
+        return self.uncommitted_events.copy()
+    
+    def mark_events_as_committed(self) -> None:
+        """Mark events as committed"""
+        self.uncommitted_events.clear()
+
+# Example aggregate
+class User(Aggregate):
+    """User aggregate with event sourcing"""
+    
+    def __init__(self, user_id: str):
+        super().__init__(user_id)
+        self.email = ""
+        self.name = ""
+        self.is_active = True
+        self.created_at = None
+    
+    def create_user(self, email: str, name: str) -> None:
+        """Create new user"""
+        
+        if self.created_at:
+            raise ValueError("User already exists")
+        
+        event = Event(
+            event_id=str(uuid.uuid4()),
+            event_type=EventType.USER_CREATED.value,
+            source=self.aggregate_id,
+            timestamp=datetime.now(timezone.utc),
+            data={
+                'user_id': self.aggregate_id,
+                'email': email,
+                'name': name
+            }
+        )
+        
+        self.raise_event(event)
+    
+    def update_user(self, email: str = None, name: str = None) -> None:
+        """Update user"""
+        
+        if not self.created_at:
+            raise ValueError("User does not exist")
+        
+        update_data = {'user_id': self.aggregate_id}
+        
+        if email and email != self.email:
+            update_data['email'] = email
+        if name and name != self.name:
+            update_data['name'] = name
+        
+        if len(update_data) > 1:  # More than just user_id
+            event = Event(
+                event_id=str(uuid.uuid4()),
+                event_type=EventType.USER_UPDATED.value,
+                source=self.aggregate_id,
+                timestamp=datetime.now(timezone.utc),
+                data=update_data
+            )
+            
+            self.raise_event(event)
+    
+    def _apply(self, event: Event) -> None:
+        """Apply event to user state"""
+        
+        if event.event_type == EventType.USER_CREATED.value:
+            self.email = event.data['email']
+            self.name = event.data['name']
+            self.created_at = event.timestamp
+            
+        elif event.event_type == EventType.USER_UPDATED.value:
+            if 'email' in event.data:
+                self.email = event.data['email']
+            if 'name' in event.data:
+                self.name = event.data['name']
+
+# Repository for aggregates
+class Repository:
+    """Repository for event-sourced aggregates"""
+    
+    def __init__(self, event_store: EventStore):
+        self.event_store = event_store
+        self.logger = logging.getLogger(__name__)
+    
+    async def get_by_id(self, aggregate_id: str, aggregate_class) -> Optional[Aggregate]:
+        """Get aggregate by ID"""
+        
+        events = await self.event_store.get_stream_events(aggregate_id)
+        
+        if not events:
+            return None
+        
+        aggregate = aggregate_class(aggregate_id)
+        
+        for event in events:
+            aggregate.apply_event(event)
+        
+        return aggregate
+    
+    async def save(self, aggregate: Aggregate) -> None:
+        """Save aggregate"""
+        
+        uncommitted_events = aggregate.get_uncommitted_events()
+        
+        for event in uncommitted_events:
+            await self.event_store.append_event(aggregate.aggregate_id, event)
+        
+        aggregate.mark_events_as_committed()
+        self.logger.info(f"Aggregate saved: {aggregate.aggregate_id}")
+```
+
+## CQRS Implementation
+
+### Command Query Responsibility Segregation
+
+```python
+# CQRS implementation
+from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
+
+T = TypeVar('T')
+
+# Command and Query interfaces
+class Command(ABC):
+    """Base command interface"""
+    pass
+
+class Query(ABC):
+    """Base query interface"""
+    pass
+
+class CommandHandler(ABC, Generic[T]):
+    """Base command handler"""
+    
+    @abstractmethod
+    async def handle(self, command: T) -> None:
+        """Handle command"""
+        pass
+
+class QueryHandler(ABC, Generic[T]):
+    """Base query handler"""
+    
+    @abstractmethod
+    async def handle(self, query: T) -> Any:
+        """Handle query"""
+        pass
+
+# Example commands
+@dataclass
+class CreateUserCommand(Command):
+    user_id: str
+    email: str
+    name: str
+
+@dataclass
+class UpdateUserCommand(Command):
+    user_id: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+
+# Example queries
+@dataclass
+class GetUserQuery(Query):
+    user_id: str
+
+@dataclass
+class GetUsersByEmailQuery(Query):
+    email: str
+
+# Command handlers
+class CreateUserCommandHandler(CommandHandler[CreateUserCommand]):
+    """Handle create user command"""
+    
+    def __init__(self, repository: Repository, event_bus: EventBus):
+        self.repository = repository
+        self.event_bus = event_bus
+        self.logger = logging.getLogger(__name__)
+    
+    async def handle(self, command: CreateUserCommand) -> None:
+        """Handle create user command"""
+        
+        # Check if user already exists
+        existing_user = await self.repository.get_by_id(command.user_id, User)
+        if existing_user and existing_user.created_at:
+            raise ValueError("User already exists")
+        
+        # Create user
+        user = User(command.user_id)
+        user.create_user(command.email, command.name)
+        
+        # Save user
+        await self.repository.save(user)
+        
+        # Publish events
+        for event in user.get_uncommitted_events():
+            await self.event_bus.publish(event)
+        
+        self.logger.info(f"User created: {command.user_id}")
+
+# Read model
+@dataclass
+class UserReadModel:
+    user_id: str
+    email: str
+    name: str
+    is_active: bool
+    created_at: datetime
+
+# Query handlers
+class GetUserQueryHandler(QueryHandler[GetUserQuery]):
+    """Handle get user query"""
+    
+    def __init__(self, read_model_store: Dict):
+        self.read_model_store = read_model_store
+        self.logger = logging.getLogger(__name__)
+    
+    async def handle(self, query: GetUserQuery) -> Optional[UserReadModel]:
+        """Handle get user query"""
+        
+        user_data = self.read_model_store.get(query.user_id)
+        
+        if user_data:
+            return UserReadModel(**user_data)
+        
+        return None
+
+# Command and Query buses
+class CommandBus:
+    """Command bus for handling commands"""
+    
+    def __init__(self):
+        self.handlers: Dict[type, CommandHandler] = {}
+    
+    def register_handler(self, command_type: type, handler: CommandHandler) -> None:
+        """Register command handler"""
+        self.handlers[command_type] = handler
+    
+    async def send(self, command: Command) -> None:
+        """Send command"""
+        
+        command_type = type(command)
+        
+        if command_type not in self.handlers:
+            raise ValueError(f"No handler registered for {command_type.__name__}")
+        
+        handler = self.handlers[command_type]
+        await handler.handle(command)
+
+class QueryBus:
+    """Query bus for handling queries"""
+    
+    def __init__(self):
+        self.handlers: Dict[type, QueryHandler] = {}
+    
+    def register_handler(self, query_type: type, handler: QueryHandler) -> None:
+        """Register query handler"""
+        self.handlers[query_type] = handler
+    
+    async def send(self, query: Query) -> Any:
+        """Send query"""
+        
+        query_type = type(query)
+        
+        if query_type not in self.handlers:
+            raise ValueError(f"No handler registered for {query_type.__name__}")
+        
+        handler = self.handlers[query_type]
+        return await handler.handle(query)
+```
+
+## Example Implementation
+
+### E-commerce Event-Driven System
+
+```python
+# Complete e-commerce example
+async def create_ecommerce_system():
+    """Create complete e-commerce event-driven system"""
+    
+    # Infrastructure
+    event_store = EventStore()
+    event_bus = InMemoryEventBus()
+    repository = Repository(event_store)
+    read_model_store = {}
+    
+    # Command bus setup
+    command_bus = CommandBus()
+    command_bus.register_handler(
+        CreateUserCommand,
+        CreateUserCommandHandler(repository, event_bus)
+    )
+    
+    # Query bus setup
+    query_bus = QueryBus()
+    query_bus.register_handler(
+        GetUserQuery,
+        GetUserQueryHandler(read_model_store)
+    )
+    
+    # Event handlers
+    user_handler = UserEventHandler()
+    order_handler = OrderEventHandler()
+    
+    # Subscribe to events
+    await event_bus.subscribe(EventType.USER_CREATED.value, user_handler.handle)
+    await event_bus.subscribe(EventType.USER_UPDATED.value, user_handler.handle)
+    await event_bus.subscribe(EventType.ORDER_PLACED.value, order_handler.handle)
+    await event_bus.subscribe(EventType.ORDER_SHIPPED.value, order_handler.handle)
+    
+    # Read model updater
+    async def update_read_model(event: Event):
+        if event.event_type == EventType.USER_CREATED.value:
+            read_model_store[event.data['user_id']] = {
+                'user_id': event.data['user_id'],
+                'email': event.data['email'],
+                'name': event.data['name'],
+                'is_active': True,
+                'created_at': event.timestamp
+            }
+    
+    await event_bus.subscribe(EventType.USER_CREATED.value, update_read_model)
+    
+    return command_bus, query_bus, event_bus
+
+# Usage example
+async def example_usage():
+    """Example usage of the event-driven system"""
+    
+    command_bus, query_bus, event_bus = await create_ecommerce_system()
+    
+    # Create user via command
+    create_command = CreateUserCommand(
+        user_id="user-123",
+        email="john@example.com",
+        name="John Doe"
+    )
+    
+    await command_bus.send(create_command)
+    
+    # Query user
+    get_query = GetUserQuery(user_id="user-123")
+    user = await query_bus.send(get_query)
+    
+    if user:
+        print(f"User found: {user.name} ({user.email})")
+    
+    # Simulate order placement
+    order_event = Event(
+        event_id=str(uuid.uuid4()),
+        event_type=EventType.ORDER_PLACED.value,
+        source="order-service",
+        timestamp=datetime.now(timezone.utc),
+        data={
+            'order_id': 'order-456',
+            'user_id': 'user-123',
+            'items': [{'product_id': 'prod-1', 'quantity': 2}],
+            'total_amount': 99.99
+        }
+    )
+    
+    await event_bus.publish(order_event)
+
+# asyncio.run(example_usage())
+```
+
+## Best Practices
+
+### Event-Driven Architecture Guidelines
+
+1. **Event Design**
+   - Use past tense for event names
+   - Include all necessary data
+   - Version events for schema evolution
+
+2. **Event Processing**
+   - Ensure idempotent handlers
+   - Implement proper error handling
+   - Use dead letter queues
+
+3. **Scalability**
+   - Partition events by key
+   - Use event sourcing for auditability
+   - Implement CQRS for read/write separation
+
+4. **Monitoring**
+   - Track event processing metrics
+   - Monitor event lag
+   - Implement health checks
+
+## Common Use Cases
+
+### Business Applications
+- **E-commerce platforms** - Order processing, inventory management
+- **Financial systems** - Transaction processing, fraud detection
+- **IoT applications** - Sensor data processing, device management
+- **Content management** - Publishing workflows, content distribution
+
+### Technical Benefits
+- **Loose coupling** - Services communicate through events
+- **Scalability** - Independent scaling of components
+- **Resilience** - Fault tolerance through event replay
+- **Auditability** - Complete event history
+
+## Summary
+
+Event-Driven Architecture provides:
+
+- **Decoupled systems** - Components communicate via events
+- **Real-time processing** - Immediate response to business events
+- **Scalable design** - Independent service scaling
+- **Audit trail** - Complete event history
+
+Key patterns:
+- Event sourcing for state management
+- CQRS for read/write separation
+- Saga pattern for distributed transactions
+
+---
+
+**Next**: Learn about [Data Processing Frameworks](/chapters/data-processing-frameworks) for batch and stream processing.

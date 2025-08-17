@@ -1,0 +1,410 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Relational Databases
+
+Relational databases remain the backbone of most data systems, providing ACID guarantees, structured data storage, and powerful query capabilities. Understanding their role in modern data engineering is essential for building robust data platforms.
+
+## RDBMS Fundamentals
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "RDBMS Architecture"
+        A[Client Applications]
+        B[Query Parser]
+        C[Query Optimizer]
+        D[Execution Engine]
+        E[Buffer Manager]
+        F[Transaction Manager]
+        G[Storage Engine]
+        H[Disk Storage]
+    end
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> G
+    F --> G
+    G --> H
+    
+    style A fill:#e3f2fd
+    style H fill:#f3e5f5
+`} />
+
+### Database Design for Analytics
+
+```sql
+-- E-commerce Analytics Database Design
+CREATE TABLE fact_orders (
+    order_id BIGINT PRIMARY KEY,
+    customer_key INTEGER NOT NULL,
+    product_key INTEGER NOT NULL,
+    date_key INTEGER NOT NULL,
+    
+    -- Measures
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL,
+    
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (customer_key) REFERENCES dim_customer(customer_key),
+    FOREIGN KEY (product_key) REFERENCES dim_product(product_key)
+);
+
+-- Customer dimension with SCD Type 2
+CREATE TABLE dim_customer (
+    customer_key INTEGER PRIMARY KEY,
+    customer_id VARCHAR(50) UNIQUE NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    email VARCHAR(255),
+    customer_segment VARCHAR(50),
+    lifetime_value DECIMAL(12,2),
+    
+    -- SCD Type 2 fields
+    effective_date DATE NOT NULL,
+    expiry_date DATE,
+    is_current BOOLEAN DEFAULT TRUE
+);
+
+-- Indexes for performance
+CREATE INDEX idx_fact_orders_customer ON fact_orders(customer_key);
+CREATE INDEX idx_fact_orders_date ON fact_orders(created_at);
+CREATE INDEX idx_customer_current ON dim_customer(customer_id) WHERE is_current = TRUE;
+```
+
+### Advanced SQL Analytics
+
+```sql
+-- Customer Lifetime Value with window functions
+WITH customer_orders AS (
+    SELECT 
+        c.customer_id,
+        f.total_amount,
+        f.created_at,
+        SUM(f.total_amount) OVER (
+            PARTITION BY c.customer_id 
+            ORDER BY f.created_at 
+            ROWS UNBOUNDED PRECEDING
+        ) as running_total,
+        ROW_NUMBER() OVER (
+            PARTITION BY c.customer_id 
+            ORDER BY f.created_at
+        ) as order_number
+    FROM fact_orders f
+    JOIN dim_customer c ON f.customer_key = c.customer_key
+    WHERE c.is_current = TRUE
+)
+SELECT 
+    customer_id,
+    COUNT(*) as total_orders,
+    SUM(total_amount) as total_spent,
+    AVG(total_amount) as avg_order_value,
+    MAX(running_total) as lifetime_value
+FROM customer_orders
+GROUP BY customer_id
+ORDER BY lifetime_value DESC;
+
+-- Data quality monitoring
+WITH quality_checks AS (
+    SELECT 
+        'missing_customer_info' as check_type,
+        COUNT(*) as issue_count
+    FROM dim_customer 
+    WHERE first_name IS NULL OR email IS NULL
+    
+    UNION ALL
+    
+    SELECT 
+        'negative_amounts' as check_type,
+        COUNT(*) as issue_count
+    FROM fact_orders 
+    WHERE total_amount < 0
+)
+SELECT * FROM quality_checks WHERE issue_count > 0;
+```
+
+## Performance Optimization
+
+### Indexing Strategies
+
+```sql
+-- Composite indexes for multi-column queries
+CREATE INDEX idx_orders_customer_date 
+ON fact_orders(customer_key, created_at);
+
+-- Partial indexes for filtered queries
+CREATE INDEX idx_active_customers 
+ON dim_customer(customer_segment)
+WHERE is_current = TRUE;
+
+-- Expression indexes for computed columns
+CREATE INDEX idx_orders_month 
+ON fact_orders(EXTRACT(MONTH FROM created_at));
+
+-- Monitor index usage
+SELECT 
+    schemaname,
+    tablename,
+    indexname,
+    idx_scan,
+    idx_tup_read
+FROM pg_stat_user_indexes
+ORDER BY idx_scan DESC;
+```
+
+### Query Optimization
+
+```python
+# Database optimization utilities
+import psycopg2
+import pandas as pd
+from typing import Dict, Any
+
+class DatabaseOptimizer:
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+    
+    def analyze_query_performance(self, query: str) -> Dict[str, Any]:
+        """Analyze query performance using EXPLAIN ANALYZE"""
+        explain_query = f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {query}"
+        
+        with psycopg2.connect(self.connection_string) as conn:
+            cursor = conn.cursor()
+            cursor.execute(explain_query)
+            result = cursor.fetchone()[0]
+        
+        plan = result[0]['Plan']
+        return {
+            'execution_time_ms': result[0]['Execution Time'],
+            'planning_time_ms': result[0]['Planning Time'],
+            'total_cost': plan['Total Cost'],
+            'actual_rows': plan['Actual Rows'],
+            'node_type': plan['Node Type']
+        }
+    
+    def get_slow_queries(self, min_duration_ms: int = 1000) -> pd.DataFrame:
+        """Get slow queries from pg_stat_statements"""
+        query = """
+        SELECT 
+            query,
+            calls,
+            total_time,
+            mean_time,
+            rows
+        FROM pg_stat_statements
+        WHERE mean_time > %s
+        ORDER BY mean_time DESC
+        LIMIT 20;
+        """
+        
+        with psycopg2.connect(self.connection_string) as conn:
+            return pd.read_sql(query, conn, params=[min_duration_ms])
+    
+    def get_table_statistics(self) -> pd.DataFrame:
+        """Get table size and statistics"""
+        query = """
+        SELECT 
+            tablename,
+            pg_size_pretty(pg_total_relation_size(tablename)) as size,
+            n_tup_ins as inserts,
+            n_tup_upd as updates,
+            n_live_tup as live_tuples,
+            n_dead_tup as dead_tuples
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(tablename) DESC;
+        """
+        
+        with psycopg2.connect(self.connection_string) as conn:
+            return pd.read_sql(query, conn)
+
+# Usage
+optimizer = DatabaseOptimizer("postgresql://user:pass@localhost/db")
+performance = optimizer.analyze_query_performance("SELECT * FROM fact_orders LIMIT 1000")
+print(f"Execution time: {performance['execution_time_ms']:.2f}ms")
+```
+
+## Database Scaling
+
+### Read Replicas and Sharding
+
+```python
+# Database routing for scaling
+import hashlib
+import random
+from typing import List, Optional
+
+class DatabaseRouter:
+    def __init__(self):
+        self.write_db = None
+        self.read_replicas: List[str] = []
+        self.shards = {}
+    
+    def configure_read_replicas(self, master_db: str, replicas: List[str]):
+        self.write_db = master_db
+        self.read_replicas = replicas
+    
+    def route_query(self, query: str, shard_key: Optional[str] = None) -> str:
+        is_write = any(keyword in query.upper() for keyword in 
+                      ['INSERT', 'UPDATE', 'DELETE'])
+        
+        if is_write:
+            return self.write_db
+        else:
+            return random.choice(self.read_replicas) if self.read_replicas else self.write_db
+
+def hash_shard_key(key: str, num_shards: int = 4) -> str:
+    hash_value = int(hashlib.md5(key.encode()).hexdigest(), 16)
+    shard_id = hash_value % num_shards
+    return f"shard_{shard_id}"
+
+# Setup routing
+router = DatabaseRouter()
+router.configure_read_replicas(
+    master_db="postgresql://master:5432/db",
+    replicas=["postgresql://replica1:5432/db", "postgresql://replica2:5432/db"]
+)
+```
+
+## Modern RDBMS Features
+
+### JSON Support
+
+```sql
+-- PostgreSQL JSON capabilities
+CREATE TABLE user_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    event_data JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Insert JSON data
+INSERT INTO user_events (user_id, event_type, event_data) VALUES
+(1, 'page_view', '{"page": "/products", "duration": 45}'),
+(1, 'purchase', '{"product_id": "prod_123", "amount": 99.99}');
+
+-- Query JSON data
+SELECT 
+    user_id,
+    event_type,
+    event_data->>'page' as page_visited,
+    (event_data->>'amount')::numeric as purchase_amount
+FROM user_events
+WHERE event_data ? 'page';
+
+-- JSON aggregation
+SELECT 
+    user_id,
+    jsonb_agg(
+        jsonb_build_object(
+            'event_type', event_type,
+            'data', event_data
+        )
+    ) as user_journey
+FROM user_events
+GROUP BY user_id;
+
+-- Create indexes on JSON fields
+CREATE INDEX idx_user_events_page ON user_events USING GIN ((event_data->>'page'));
+```
+
+## Monitoring and Maintenance
+
+```python
+# Database monitoring system
+from dataclasses import dataclass
+from datetime import datetime
+from typing import List
+
+@dataclass
+class DatabaseMetrics:
+    timestamp: datetime
+    connections_active: int
+    queries_per_second: float
+    cache_hit_ratio: float
+    avg_query_time: float
+    disk_usage_gb: float
+
+class DatabaseMonitor:
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+    
+    def collect_metrics(self) -> DatabaseMetrics:
+        with psycopg2.connect(self.connection_string) as conn:
+            cursor = conn.cursor()
+            
+            # Active connections
+            cursor.execute("""
+                SELECT COUNT(*) FROM pg_stat_activity 
+                WHERE state = 'active' AND datname = current_database();
+            """)
+            active_connections = cursor.fetchone()[0]
+            
+            # Cache hit ratio
+            cursor.execute("""
+                SELECT 
+                    SUM(blks_hit) / (SUM(blks_hit) + SUM(blks_read)) * 100
+                FROM pg_stat_database
+                WHERE datname = current_database();
+            """)
+            cache_hit_ratio = cursor.fetchone()[0] or 0
+            
+            return DatabaseMetrics(
+                timestamp=datetime.utcnow(),
+                connections_active=active_connections,
+                queries_per_second=0,  # Would calculate from pg_stat_statements
+                cache_hit_ratio=cache_hit_ratio,
+                avg_query_time=0,      # Would calculate from pg_stat_statements
+                disk_usage_gb=0        # Would get from pg_database_size
+            )
+    
+    def detect_anomalies(self, metrics: DatabaseMetrics) -> List[str]:
+        alerts = []
+        
+        if metrics.cache_hit_ratio < 95:
+            alerts.append(f"Low cache hit ratio: {metrics.cache_hit_ratio:.2f}%")
+        
+        if metrics.connections_active > 100:
+            alerts.append(f"High active connections: {metrics.connections_active}")
+        
+        return alerts
+```
+
+## Best Practices
+
+### Schema Design
+- Use appropriate data types
+- Implement proper constraints
+- Design for query patterns
+- Consider partitioning for large tables
+
+### Performance
+- Create indexes based on query patterns
+- Monitor and optimize slow queries
+- Use connection pooling
+- Implement proper caching strategies
+
+### Maintenance
+- Regular VACUUM and ANALYZE
+- Monitor table bloat
+- Keep statistics up to date
+- Plan for capacity growth
+
+## Summary
+
+Relational databases continue to be fundamental in data engineering, providing:
+- **ACID compliance** for data consistency
+- **Rich query capabilities** with SQL
+- **Mature tooling** and ecosystem
+- **Strong consistency** guarantees
+
+Modern RDBMS systems have evolved to support semi-structured data, advanced analytics, and cloud-native deployments, making them suitable for diverse data engineering workloads.
+
+---
+
+**Next**: Learn about [NoSQL Databases](/chapters/data-storage/nosql-databases) to understand when and how to use non-relational data stores.

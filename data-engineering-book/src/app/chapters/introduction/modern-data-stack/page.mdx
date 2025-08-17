@@ -1,0 +1,577 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Modern Data Stack
+
+The Modern Data Stack (MDS) represents a paradigm shift in how organizations build and manage their data infrastructure. It emphasizes cloud-native, modular, and easy-to-use tools that can be quickly assembled to create powerful data platforms.
+
+## Evolution of Data Stacks
+
+<MermaidDiagram chart={`
+timeline
+    title Evolution of Data Infrastructure
+    
+    section Traditional (2000-2010)
+        On-Premise Databases : Oracle : SQL Server : MySQL
+        ETL Tools : Informatica : DataStage : SSIS
+        BI Tools : Cognos : Business Objects
+    
+    section Big Data Era (2010-2015)
+        Hadoop Ecosystem : HDFS : MapReduce : Hive
+        NoSQL Databases : MongoDB : Cassandra : HBase
+        Spark : Distributed Processing
+    
+    section Cloud Era (2015-2020)
+        Cloud Data Warehouses : Snowflake : BigQuery : Redshift
+        Cloud Storage : S3 : GCS : Azure Blob
+        Managed Services : EMR : Dataflow : Databricks
+    
+    section Modern Stack (2020+)
+        ELT over ETL : dbt : Fivetran : Airbyte
+        Data Observability : Monte Carlo : Great Expectations
+        Reverse ETL : Census : Hightouch
+`} />
+
+## Core Components
+
+### 1. Data Integration & Ingestion
+
+**Extract and Load (EL) Tools**
+```python
+# Example: Airbyte connector configuration
+airbyte_config = {
+    "source": {
+        "type": "postgres",
+        "host": "source-db.company.com",
+        "port": 5432,
+        "database": "production",
+        "username": "readonly_user",
+        "password": "${POSTGRES_PASSWORD}",
+        "schemas": ["public", "analytics"]
+    },
+    "destination": {
+        "type": "snowflake",
+        "host": "company.snowflakecomputing.com",
+        "warehouse": "COMPUTE_WH",
+        "database": "RAW_DATA",
+        "schema": "POSTGRES_REPLICA",
+        "username": "AIRBYTE_USER",
+        "password": "${SNOWFLAKE_PASSWORD}"
+    },
+    "sync_mode": "incremental",
+    "frequency": "hourly"
+}
+```
+
+**Popular EL Tools:**
+- **Fivetran**: Managed connectors for 300+ sources
+- **Airbyte**: Open-source data integration platform
+- **Stitch**: Simple, extensible ETL service
+- **Segment**: Customer data platform
+
+### 2. Data Warehouses
+
+**Cloud-Native Warehouses**
+```sql
+-- Example: Snowflake data warehouse setup
+-- Create warehouse for compute
+CREATE WAREHOUSE analytics_wh
+WITH 
+  WAREHOUSE_SIZE = 'MEDIUM'
+  AUTO_SUSPEND = 300
+  AUTO_RESUME = TRUE;
+
+-- Create database structure
+CREATE DATABASE raw_data;
+CREATE DATABASE transformed_data;
+CREATE DATABASE marts;
+
+-- Set up role-based access
+CREATE ROLE data_engineer;
+CREATE ROLE data_analyst;
+CREATE ROLE data_scientist;
+
+GRANT USAGE ON WAREHOUSE analytics_wh TO ROLE data_engineer;
+GRANT ALL ON DATABASE transformed_data TO ROLE data_engineer;
+```
+
+**Comparison of Cloud Warehouses:**
+
+| Feature | Snowflake | BigQuery | Redshift |
+|---------|-----------|----------|----------|
+| **Pricing** | Compute + Storage | Query-based | Compute + Storage |
+| **Scaling** | Instant | Automatic | Manual/Auto |
+| **Performance** | Excellent | Excellent | Good |
+| **Ecosystem** | Broad | Google-centric | AWS-centric |
+
+### 3. Data Transformation
+
+**dbt (Data Build Tool)**
+```sql
+-- models/staging/stg_orders.sql
+{{ config(materialized='view') }}
+
+SELECT
+    order_id,
+    customer_id,
+    order_date,
+    status,
+    total_amount,
+    -- Clean and standardize data
+    UPPER(TRIM(status)) as order_status,
+    DATE_TRUNC('day', order_date) as order_date_clean,
+    -- Add metadata
+    CURRENT_TIMESTAMP() as _loaded_at
+FROM {{ source('raw', 'orders') }}
+WHERE order_date >= '2020-01-01'
+```
+
+```sql
+-- models/marts/customer_metrics.sql
+{{ config(materialized='table') }}
+
+WITH customer_orders AS (
+    SELECT
+        customer_id,
+        COUNT(*) as total_orders,
+        SUM(total_amount) as total_spent,
+        AVG(total_amount) as avg_order_value,
+        MIN(order_date) as first_order_date,
+        MAX(order_date) as last_order_date
+    FROM {{ ref('stg_orders') }}
+    WHERE order_status = 'COMPLETED'
+    GROUP BY customer_id
+),
+
+customer_segments AS (
+    SELECT
+        *,
+        CASE
+            WHEN total_spent >= 10000 THEN 'VIP'
+            WHEN total_spent >= 1000 THEN 'Premium'
+            WHEN total_spent >= 100 THEN 'Regular'
+            ELSE 'New'
+        END as customer_segment
+    FROM customer_orders
+)
+
+SELECT * FROM customer_segments
+```
+
+**dbt Features:**
+- **Modularity**: Reusable SQL models
+- **Testing**: Built-in data quality tests
+- **Documentation**: Auto-generated docs
+- **Lineage**: Visual data lineage graphs
+
+### 4. Data Orchestration
+
+**Modern Orchestration Tools**
+```python
+# Example: Dagster pipeline
+from dagster import asset, AssetMaterialization
+import pandas as pd
+
+@asset
+def raw_orders():
+    """Extract orders from source database"""
+    # Connect to source and extract data
+    df = pd.read_sql("SELECT * FROM orders", source_connection)
+    return df
+
+@asset
+def clean_orders(raw_orders):
+    """Clean and validate orders data"""
+    df = raw_orders.copy()
+    
+    # Data quality checks
+    assert df['order_id'].nunique() == len(df), "Duplicate order IDs found"
+    assert df['total_amount'].min() >= 0, "Negative amounts found"
+    
+    # Clean data
+    df['status'] = df['status'].str.upper().str.strip()
+    df = df.dropna(subset=['customer_id'])
+    
+    return df
+
+@asset
+def customer_metrics(clean_orders):
+    """Calculate customer-level metrics"""
+    metrics = clean_orders.groupby('customer_id').agg({
+        'order_id': 'count',
+        'total_amount': ['sum', 'mean'],
+        'order_date': ['min', 'max']
+    }).round(2)
+    
+    return metrics
+```
+
+**Orchestration Options:**
+- **Airflow**: Traditional DAG-based orchestration
+- **Dagster**: Asset-based data orchestration
+- **Prefect**: Modern workflow management
+- **dbt Cloud**: Integrated dbt orchestration
+
+### 5. Data Observability
+
+**Great Expectations for Data Quality**
+```python
+# Example: Data quality expectations
+import great_expectations as gx
+
+# Create expectation suite
+suite = gx.ExpectationSuite(expectation_suite_name="orders_quality")
+
+# Add expectations
+suite.add_expectation(
+    gx.expectations.ExpectColumnValuesToNotBeNull(column="order_id")
+)
+
+suite.add_expectation(
+    gx.expectations.ExpectColumnValuesToBeUnique(column="order_id")
+)
+
+suite.add_expectation(
+    gx.expectations.ExpectColumnValuesToBeBetween(
+        column="total_amount",
+        min_value=0,
+        max_value=100000
+    )
+)
+
+suite.add_expectation(
+    gx.expectations.ExpectColumnValuesToBeInSet(
+        column="status",
+        value_set=["PENDING", "COMPLETED", "CANCELLED", "REFUNDED"]
+    )
+)
+
+# Validate data
+context = gx.get_context()
+validator = context.get_validator(
+    batch_request=batch_request,
+    expectation_suite=suite
+)
+
+results = validator.validate()
+```
+
+### 6. Business Intelligence
+
+**Modern BI Tools**
+```python
+# Example: Looker LookML model
+# orders.view.lkml
+view: orders {
+  sql_table_name: marts.customer_orders ;;
+  
+  dimension: order_id {
+    type: string
+    primary_key: yes
+    sql: ${TABLE}.order_id ;;
+  }
+  
+  dimension: customer_id {
+    type: string
+    sql: ${TABLE}.customer_id ;;
+  }
+  
+  dimension_group: order_date {
+    type: time
+    timeframes: [date, week, month, year]
+    sql: ${TABLE}.order_date ;;
+  }
+  
+  measure: total_orders {
+    type: count
+    drill_fields: [order_id, customer_id, order_date_date]
+  }
+  
+  measure: total_revenue {
+    type: sum
+    sql: ${TABLE}.total_amount ;;
+    value_format_name: usd
+  }
+  
+  measure: average_order_value {
+    type: average
+    sql: ${TABLE}.total_amount ;;
+    value_format_name: usd
+  }
+}
+```
+
+## Modern Data Stack Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        A1[SaaS Apps]
+        A2[Databases]
+        A3[APIs]
+        A4[Files]
+    end
+    
+    subgraph "Ingestion Layer"
+        B1[Fivetran]
+        B2[Airbyte]
+        B3[Segment]
+    end
+    
+    subgraph "Storage Layer"
+        C1[Snowflake]
+        C2[BigQuery]
+        C3[Databricks]
+    end
+    
+    subgraph "Transformation Layer"
+        D1[dbt]
+        D2[Dataform]
+    end
+    
+    subgraph "Orchestration"
+        E1[Airflow]
+        E2[Dagster]
+        E3[Prefect]
+    end
+    
+    subgraph "Observability"
+        F1[Monte Carlo]
+        F2[Great Expectations]
+        F3[Datadog]
+    end
+    
+    subgraph "Analytics Layer"
+        G1[Looker]
+        G2[Tableau]
+        G3[Mode]
+    end
+    
+    subgraph "Reverse ETL"
+        H1[Census]
+        H2[Hightouch]
+    end
+    
+    A1 --> B1
+    A2 --> B2
+    A3 --> B3
+    A4 --> B1
+    
+    B1 --> C1
+    B2 --> C2
+    B3 --> C3
+    
+    C1 --> D1
+    C2 --> D2
+    C3 --> D1
+    
+    D1 --> G1
+    D2 --> G2
+    
+    E1 -.-> D1
+    E2 -.-> D2
+    
+    F1 -.-> C1
+    F2 -.-> D1
+    
+    C1 --> H1
+    C2 --> H2
+    
+    style C1 fill:#e3f2fd
+    style D1 fill:#e8f5e8
+    style G1 fill:#f3e5f5
+`} />
+
+## Implementation Example
+
+### Complete MDS Setup
+
+```yaml
+# docker-compose.yml for local MDS environment
+version: '3.8'
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: source_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+  
+  airbyte-server:
+    image: airbyte/server:latest
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+  
+  dbt:
+    image: dbt-labs/dbt-core:latest
+    volumes:
+      - ./dbt_project:/usr/app/dbt
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt
+  
+  metabase:
+    image: metabase/metabase:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+```
+
+```python
+# Modern data pipeline with Python
+class ModernDataPipeline:
+    def __init__(self):
+        self.extractor = FivetranConnector()
+        self.warehouse = SnowflakeConnection()
+        self.transformer = DbtRunner()
+        self.quality_checker = GreatExpectations()
+        self.orchestrator = DagsterRunner()
+    
+    def setup_pipeline(self):
+        """Setup complete modern data pipeline"""
+        
+        # 1. Configure data sources
+        sources = [
+            {
+                'name': 'salesforce',
+                'type': 'salesforce',
+                'sync_frequency': 'hourly'
+            },
+            {
+                'name': 'postgres_prod',
+                'type': 'postgres',
+                'sync_frequency': 'every_15_minutes'
+            }
+        ]
+        
+        for source in sources:
+            self.extractor.create_connector(source)
+        
+        # 2. Setup dbt models
+        dbt_models = [
+            'staging/stg_customers.sql',
+            'staging/stg_orders.sql',
+            'marts/customer_metrics.sql',
+            'marts/product_performance.sql'
+        ]
+        
+        self.transformer.deploy_models(dbt_models)
+        
+        # 3. Configure data quality tests
+        quality_suites = [
+            'customer_data_quality',
+            'order_data_quality',
+            'financial_data_quality'
+        ]
+        
+        for suite in quality_suites:
+            self.quality_checker.deploy_suite(suite)
+        
+        # 4. Setup orchestration
+        self.orchestrator.create_pipeline([
+            'extract_data',
+            'run_quality_checks',
+            'transform_data',
+            'validate_outputs',
+            'update_dashboards'
+        ])
+    
+    def monitor_pipeline(self):
+        """Monitor pipeline health and performance"""
+        metrics = {
+            'data_freshness': self.check_data_freshness(),
+            'quality_score': self.quality_checker.get_overall_score(),
+            'pipeline_success_rate': self.orchestrator.get_success_rate(),
+            'cost_metrics': self.warehouse.get_cost_metrics()
+        }
+        
+        return metrics
+```
+
+## Benefits of Modern Data Stack
+
+### 1. Speed to Value
+- **Quick Setup**: Pre-built connectors and templates
+- **Minimal Infrastructure**: Cloud-native, managed services
+- **Self-Service**: Analysts can work independently
+
+### 2. Scalability
+- **Elastic Compute**: Scale up/down based on demand
+- **Separation of Storage and Compute**: Independent scaling
+- **Multi-tenant Architecture**: Support multiple teams
+
+### 3. Cost Efficiency
+- **Pay-as-you-go**: Only pay for what you use
+- **Reduced Maintenance**: Managed services reduce ops overhead
+- **Resource Optimization**: Automatic scaling and optimization
+
+### 4. Developer Experience
+- **Version Control**: Git-based workflows
+- **Testing**: Built-in testing frameworks
+- **Documentation**: Auto-generated documentation
+
+## Challenges and Considerations
+
+### 1. Vendor Lock-in
+```python
+# Strategy: Multi-cloud abstraction layer
+class CloudAbstractionLayer:
+    def __init__(self, primary_cloud='aws', backup_cloud='gcp'):
+        self.primary = self.get_cloud_provider(primary_cloud)
+        self.backup = self.get_cloud_provider(backup_cloud)
+    
+    def execute_query(self, query):
+        """Execute query with fallback capability"""
+        try:
+            return self.primary.execute(query)
+        except Exception as e:
+            logger.warning(f"Primary cloud failed: {e}")
+            return self.backup.execute(query)
+```
+
+### 2. Data Governance
+- **Data Lineage**: Track data flow across tools
+- **Access Control**: Implement role-based permissions
+- **Compliance**: Ensure GDPR, CCPA compliance
+
+### 3. Cost Management
+- **Monitoring**: Track costs across all services
+- **Optimization**: Right-size compute resources
+- **Budgeting**: Set alerts and limits
+
+## Future Trends
+
+### 1. Data Mesh Architecture
+- **Domain-Oriented**: Data ownership by business domains
+- **Self-Serve Infrastructure**: Platform as a product
+- **Federated Governance**: Distributed data governance
+
+### 2. AI-Powered Data Operations
+- **Automated Quality Monitoring**: ML-based anomaly detection
+- **Intelligent Optimization**: AI-driven performance tuning
+- **Natural Language Interfaces**: Query data using natural language
+
+### 3. Real-time Everything
+- **Stream-First Architecture**: Real-time by default
+- **Event-Driven Systems**: React to data changes instantly
+- **Operational Analytics**: Real-time business intelligence
+
+## Summary
+
+The Modern Data Stack represents a fundamental shift towards cloud-native, modular, and user-friendly data infrastructure. By leveraging managed services and best-of-breed tools, organizations can build powerful data platforms faster and more cost-effectively than ever before.
+
+Key principles of the MDS include:
+- **ELT over ETL**: Load first, transform in the warehouse
+- **SQL-centric**: Leverage SQL for transformations
+- **Version Control**: Treat data code like application code
+- **Self-Service**: Enable analysts to work independently
+- **Observability**: Monitor data quality and pipeline health
+
+While the MDS offers significant advantages, organizations must carefully consider vendor relationships, governance requirements, and cost management to maximize the benefits of this approach.
+
+---
+
+**Next**: Explore [Data Architecture Fundamentals](/chapters/data-architecture/architecture-patterns) to understand how to design robust data systems using modern stack principles.

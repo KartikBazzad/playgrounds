@@ -1,0 +1,713 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Cataloging
+
+Data cataloging is the process of creating and maintaining an organized inventory of data assets within an organization. It provides a centralized repository of metadata, making data discoverable, understandable, and accessible to data consumers across the enterprise.
+
+## Data Catalog Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Databases]
+        DS2[Data Lakes]
+        DS3[APIs]
+        DS4[Files]
+        DS5[Streaming]
+    end
+    
+    subgraph "Metadata Collection"
+        MC1[Schema Scanner]
+        MC2[Usage Tracker]
+        MC3[Quality Monitor]
+        MC4[Lineage Collector]
+    end
+    
+    subgraph "Data Catalog Core"
+        DC1[Metadata Repository]
+        DC2[Search Engine]
+        DC3[Classification Engine]
+        DC4[Recommendation Engine]
+    end
+    
+    subgraph "User Interfaces"
+        UI1[Web Portal]
+        UI2[API Gateway]
+        UI3[CLI Tools]
+        UI4[IDE Plugins]
+    end
+    
+    subgraph "Consumers"
+        C1[Data Scientists]
+        C2[Analysts]
+        C3[Engineers]
+        C4[Business Users]
+    end
+    
+    DS1 --> MC1
+    DS2 --> MC2
+    DS3 --> MC3
+    DS4 --> MC4
+    DS5 --> MC1
+    
+    MC1 --> DC1
+    MC2 --> DC1
+    MC3 --> DC1
+    MC4 --> DC1
+    
+    DC1 --> DC2
+    DC1 --> DC3
+    DC1 --> DC4
+    
+    DC2 --> UI1
+    DC3 --> UI2
+    DC4 --> UI3
+    DC1 --> UI4
+    
+    UI1 --> C1
+    UI2 --> C2
+    UI3 --> C3
+    UI4 --> C4
+    
+    style DS1 fill:#e3f2fd
+    style DC1 fill:#e8f5e8
+    style UI1 fill:#fff3e0
+    style C1 fill:#f3e5f5
+`} />
+
+## Core Data Catalog Implementation
+
+### Data Asset Management System
+
+```python
+# Comprehensive Data Catalog System
+import uuid
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Set, Union
+from dataclasses import dataclass, field
+from enum import Enum
+import json
+import logging
+from collections import defaultdict
+
+class DataAssetType(Enum):
+    """Types of data assets"""
+    TABLE = "table"
+    VIEW = "view"
+    FILE = "file"
+    API = "api"
+    STREAM = "stream"
+    MODEL = "model"
+    DASHBOARD = "dashboard"
+    REPORT = "report"
+
+class DataClassification(Enum):
+    """Data classification levels"""
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+
+@dataclass
+class DataSchema:
+    """Schema information for data assets"""
+    columns: List[Dict[str, Any]] = field(default_factory=list)
+    primary_keys: List[str] = field(default_factory=list)
+    foreign_keys: List[Dict[str, str]] = field(default_factory=list)
+    indexes: List[str] = field(default_factory=list)
+    
+    def add_column(self, name: str, data_type: str, nullable: bool = True,
+                   description: str = ""):
+        """Add column to schema"""
+        self.columns.append({
+            'name': name,
+            'type': data_type,
+            'nullable': nullable,
+            'description': description
+        })
+
+@dataclass
+class DataQualityMetrics:
+    """Data quality metrics for catalog assets"""
+    completeness_score: float = 0.0
+    uniqueness_score: float = 0.0
+    validity_score: float = 0.0
+    consistency_score: float = 0.0
+    overall_score: float = 0.0
+    last_assessed: Optional[datetime] = None
+    
+    def calculate_overall_score(self):
+        """Calculate overall quality score"""
+        scores = [self.completeness_score, self.uniqueness_score, 
+                 self.validity_score, self.consistency_score]
+        self.overall_score = sum(scores) / len(scores)
+        self.last_assessed = datetime.now()
+
+@dataclass
+class UsageStatistics:
+    """Usage statistics for data assets"""
+    total_queries: int = 0
+    unique_users: int = 0
+    last_accessed: Optional[datetime] = None
+    access_frequency: Dict[str, int] = field(default_factory=dict)
+    
+    def update_access(self, user_id: str):
+        """Update usage statistics"""
+        self.total_queries += 1
+        self.last_accessed = datetime.now()
+        today = datetime.now().strftime('%Y-%m-%d')
+        self.access_frequency[today] = self.access_frequency.get(today, 0) + 1
+
+@dataclass
+class DataAsset:
+    """Core data asset in the catalog"""
+    id: str
+    name: str
+    asset_type: DataAssetType
+    description: str = ""
+    location: str = ""
+    owner: str = ""
+    steward: str = ""
+    classification: DataClassification = DataClassification.INTERNAL
+    schema: Optional[DataSchema] = None
+    tags: Set[str] = field(default_factory=set)
+    business_terms: Set[str] = field(default_factory=set)
+    technical_metadata: Dict[str, Any] = field(default_factory=dict)
+    business_metadata: Dict[str, Any] = field(default_factory=dict)
+    quality_metrics: Optional[DataQualityMetrics] = None
+    usage_stats: Optional[UsageStatistics] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+    
+    def __post_init__(self):
+        if not self.quality_metrics:
+            self.quality_metrics = DataQualityMetrics()
+        if not self.usage_stats:
+            self.usage_stats = UsageStatistics()
+    
+    def add_tag(self, tag: str):
+        """Add tag to asset"""
+        self.tags.add(tag.lower())
+        self.updated_at = datetime.now()
+    
+    def add_business_term(self, term: str):
+        """Add business term to asset"""
+        self.business_terms.add(term.lower())
+        self.updated_at = datetime.now()
+
+class DataCatalog:
+    """Comprehensive data catalog system"""
+    
+    def __init__(self):
+        self.assets: Dict[str, DataAsset] = {}
+        self.search_index: Dict[str, Set[str]] = defaultdict(set)
+        self.business_glossary: Dict[str, str] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def register_asset(self, asset: DataAsset) -> str:
+        """Register a data asset in the catalog"""
+        self.assets[asset.id] = asset
+        self._update_search_index(asset)
+        self.logger.info(f"Registered asset: {asset.name} ({asset.id})")
+        return asset.id
+    
+    def search_assets(self, query: str, filters: Dict[str, Any] = None) -> List[DataAsset]:
+        """Search for assets using query and filters"""
+        query_terms = query.lower().split()
+        matching_asset_ids = set()
+        
+        # Text search
+        for term in query_terms:
+            for search_term, asset_ids in self.search_index.items():
+                if term in search_term:
+                    matching_asset_ids.update(asset_ids)
+        
+        # If no query, return all assets
+        if not query_terms:
+            matching_asset_ids = set(self.assets.keys())
+        
+        # Apply filters
+        filtered_assets = []
+        for asset_id in matching_asset_ids:
+            asset = self.assets[asset_id]
+            if self._matches_filters(asset, filters or {}):
+                filtered_assets.append(asset)
+        
+        # Sort by usage
+        filtered_assets.sort(key=lambda a: a.usage_stats.total_queries, reverse=True)
+        return filtered_assets
+    
+    def get_assets_by_owner(self, owner: str) -> List[DataAsset]:
+        """Get all assets owned by a specific user"""
+        return [asset for asset in self.assets.values() if asset.owner == owner]
+    
+    def get_assets_by_tag(self, tag: str) -> List[DataAsset]:
+        """Get all assets with a specific tag"""
+        return [asset for asset in self.assets.values() if tag.lower() in asset.tags]
+    
+    def get_popular_assets(self, limit: int = 10) -> List[DataAsset]:
+        """Get most popular assets based on usage"""
+        sorted_assets = sorted(
+            self.assets.values(),
+            key=lambda a: a.usage_stats.total_queries,
+            reverse=True
+        )
+        return sorted_assets[:limit]
+    
+    def add_business_term(self, term: str, definition: str):
+        """Add business term to glossary"""
+        self.business_glossary[term.lower()] = definition
+        self.logger.info(f"Added business term: {term}")
+    
+    def generate_data_dictionary(self, asset_id: str) -> Dict[str, Any]:
+        """Generate data dictionary for an asset"""
+        asset = self.assets.get(asset_id)
+        if not asset:
+            return {}
+        
+        dictionary = {
+            'asset_info': {
+                'name': asset.name,
+                'type': asset.asset_type.value,
+                'description': asset.description,
+                'owner': asset.owner,
+                'classification': asset.classification.value
+            },
+            'schema': asset.schema.columns if asset.schema else [],
+            'business_context': {
+                'business_terms': list(asset.business_terms),
+                'tags': list(asset.tags)
+            },
+            'quality_info': {
+                'overall_score': asset.quality_metrics.overall_score,
+                'last_assessed': asset.quality_metrics.last_assessed.isoformat() 
+                    if asset.quality_metrics.last_assessed else None
+            },
+            'usage_info': {
+                'total_queries': asset.usage_stats.total_queries,
+                'last_accessed': asset.usage_stats.last_accessed.isoformat()
+                    if asset.usage_stats.last_accessed else None
+            }
+        }
+        
+        return dictionary
+    
+    def get_catalog_statistics(self) -> Dict[str, Any]:
+        """Get catalog statistics"""
+        total_assets = len(self.assets)
+        assets_by_type = defaultdict(int)
+        assets_by_classification = defaultdict(int)
+        
+        for asset in self.assets.values():
+            assets_by_type[asset.asset_type.value] += 1
+            assets_by_classification[asset.classification.value] += 1
+        
+        return {
+            'total_assets': total_assets,
+            'assets_by_type': dict(assets_by_type),
+            'assets_by_classification': dict(assets_by_classification),
+            'total_business_terms': len(self.business_glossary)
+        }
+    
+    def _update_search_index(self, asset: DataAsset):
+        """Update search index for asset"""
+        # Index asset name
+        for term in asset.name.lower().split():
+            self.search_index[term].add(asset.id)
+        
+        # Index description
+        if asset.description:
+            for term in asset.description.lower().split():
+                self.search_index[term].add(asset.id)
+        
+        # Index tags and business terms
+        for tag in asset.tags:
+            self.search_index[tag.lower()].add(asset.id)
+        for term in asset.business_terms:
+            self.search_index[term.lower()].add(asset.id)
+        
+        # Index column names
+        if asset.schema:
+            for column in asset.schema.columns:
+                self.search_index[column['name'].lower()].add(asset.id)
+    
+    def _matches_filters(self, asset: DataAsset, filters: Dict[str, Any]) -> bool:
+        """Check if asset matches filters"""
+        for filter_key, filter_value in filters.items():
+            if filter_key == 'asset_type' and asset.asset_type.value != filter_value:
+                return False
+            elif filter_key == 'owner' and asset.owner != filter_value:
+                return False
+            elif filter_key == 'classification' and asset.classification.value != filter_value:
+                return False
+            elif filter_key == 'tags' and not any(tag in asset.tags for tag in filter_value):
+                return False
+        return True
+
+# Example usage
+def example_data_catalog():
+    """Example of data catalog usage"""
+    
+    # Initialize catalog
+    catalog = DataCatalog()
+    
+    # Add business terms
+    catalog.add_business_term("Customer", "Individual or organization that purchases products")
+    catalog.add_business_term("Revenue", "Total income from sales")
+    
+    # Create sample asset
+    customer_schema = DataSchema()
+    customer_schema.add_column("customer_id", "INTEGER", False, "Unique identifier")
+    customer_schema.add_column("name", "VARCHAR(255)", False, "Customer name")
+    customer_schema.add_column("email", "VARCHAR(255)", True, "Email address")
+    
+    customer_asset = DataAsset(
+        id=str(uuid.uuid4()),
+        name="customers",
+        asset_type=DataAssetType.TABLE,
+        description="Customer information table",
+        location="postgres://localhost/db/customers",
+        owner="data-team@company.com",
+        classification=DataClassification.CONFIDENTIAL,
+        schema=customer_schema
+    )
+    
+    customer_asset.add_tag("customer-data")
+    customer_asset.add_tag("pii")
+    customer_asset.add_business_term("customer")
+    
+    # Update quality metrics
+    customer_asset.quality_metrics.completeness_score = 0.95
+    customer_asset.quality_metrics.uniqueness_score = 0.98
+    customer_asset.quality_metrics.calculate_overall_score()
+    
+    # Register asset
+    asset_id = catalog.register_asset(customer_asset)
+    
+    # Search examples
+    results = catalog.search_assets("customer")
+    print(f"Found {len(results)} assets matching 'customer'")
+    
+    # Get data dictionary
+    dictionary = catalog.generate_data_dictionary(asset_id)
+    print(f"Generated dictionary for: {dictionary['asset_info']['name']}")
+    
+    return catalog
+
+# catalog = example_data_catalog()
+```
+
+## Metadata Collection and Management
+
+### Automated Metadata Discovery
+
+```python
+# Automated metadata collection system
+from abc import ABC, abstractmethod
+import pandas as pd
+import sqlalchemy
+from pathlib import Path
+
+class MetadataCollector(ABC):
+    """Abstract base class for metadata collectors"""
+    
+    @abstractmethod
+    def collect_metadata(self, source_config: Dict[str, Any]) -> List[DataAsset]:
+        """Collect metadata from data source"""
+        pass
+
+class DatabaseMetadataCollector(MetadataCollector):
+    """Collect metadata from database systems"""
+    
+    def collect_metadata(self, source_config: Dict[str, Any]) -> List[DataAsset]:
+        """Collect metadata from database"""
+        assets = []
+        
+        try:
+            # Create database connection
+            connection_string = source_config['connection_string']
+            engine = sqlalchemy.create_engine(connection_string)
+            
+            # Get table information
+            inspector = sqlalchemy.inspect(engine)
+            tables = inspector.get_table_names()
+            
+            for table_name in tables:
+                # Get column information
+                columns = inspector.get_columns(table_name)
+                primary_keys = inspector.get_pk_constraint(table_name)['constrained_columns']
+                foreign_keys = inspector.get_foreign_keys(table_name)
+                
+                # Create schema
+                schema = DataSchema()
+                schema.primary_keys = primary_keys
+                
+                for column in columns:
+                    schema.add_column(
+                        name=column['name'],
+                        data_type=str(column['type']),
+                        nullable=column['nullable'],
+                        description=""
+                    )
+                
+                # Create asset
+                asset = DataAsset(
+                    id=str(uuid.uuid4()),
+                    name=table_name,
+                    asset_type=DataAssetType.TABLE,
+                    description=f"Database table: {table_name}",
+                    location=f"{connection_string}/{table_name}",
+                    schema=schema,
+                    technical_metadata={
+                        'database_type': engine.dialect.name,
+                        'table_name': table_name,
+                        'row_count': self._get_row_count(engine, table_name)
+                    }
+                )
+                
+                assets.append(asset)
+                
+        except Exception as e:
+            logging.error(f"Error collecting database metadata: {e}")
+        
+        return assets
+    
+    def _get_row_count(self, engine, table_name: str) -> int:
+        """Get approximate row count for table"""
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+                return result.scalar()
+        except:
+            return 0
+
+class FileMetadataCollector(MetadataCollector):
+    """Collect metadata from file systems"""
+    
+    def collect_metadata(self, source_config: Dict[str, Any]) -> List[DataAsset]:
+        """Collect metadata from files"""
+        assets = []
+        base_path = Path(source_config['base_path'])
+        
+        # Scan for data files
+        for file_path in base_path.rglob('*'):
+            if file_path.is_file() and self._is_data_file(file_path):
+                
+                # Detect file format
+                file_format = self._detect_format(file_path)
+                
+                # Try to infer schema for structured files
+                schema = self._infer_schema(file_path, file_format)
+                
+                asset = DataAsset(
+                    id=str(uuid.uuid4()),
+                    name=file_path.name,
+                    asset_type=DataAssetType.FILE,
+                    description=f"Data file: {file_path.name}",
+                    location=str(file_path),
+                    schema=schema,
+                    technical_metadata={
+                        'file_size': file_path.stat().st_size,
+                        'file_format': file_format,
+                        'last_modified': datetime.fromtimestamp(file_path.stat().st_mtime),
+                        'file_extension': file_path.suffix
+                    }
+                )
+                
+                assets.append(asset)
+        
+        return assets
+    
+    def _is_data_file(self, file_path: Path) -> bool:
+        """Check if file is a data file"""
+        data_extensions = {'.csv', '.json', '.parquet', '.xlsx', '.xml', '.avro'}
+        return file_path.suffix.lower() in data_extensions
+    
+    def _detect_format(self, file_path: Path) -> str:
+        """Detect file format from extension"""
+        extension_map = {
+            '.csv': 'csv',
+            '.json': 'json',
+            '.parquet': 'parquet',
+            '.xlsx': 'excel',
+            '.xml': 'xml',
+            '.avro': 'avro'
+        }
+        return extension_map.get(file_path.suffix.lower(), 'unknown')
+    
+    def _infer_schema(self, file_path: Path, file_format: str) -> Optional[DataSchema]:
+        """Infer schema from file"""
+        try:
+            if file_format == 'csv':
+                df = pd.read_csv(file_path, nrows=100)  # Sample first 100 rows
+                schema = DataSchema()
+                
+                for column in df.columns:
+                    dtype = str(df[column].dtype)
+                    schema.add_column(column, dtype, df[column].isnull().any())
+                
+                return schema
+                
+            elif file_format == 'parquet':
+                df = pd.read_parquet(file_path)
+                schema = DataSchema()
+                
+                for column in df.columns:
+                    dtype = str(df[column].dtype)
+                    schema.add_column(column, dtype, df[column].isnull().any())
+                
+                return schema
+                
+        except Exception as e:
+            logging.warning(f"Could not infer schema for {file_path}: {e}")
+        
+        return None
+
+class CatalogManager:
+    """Manages automated metadata collection and catalog updates"""
+    
+    def __init__(self, catalog: DataCatalog):
+        self.catalog = catalog
+        self.collectors = {
+            'database': DatabaseMetadataCollector(),
+            'file': FileMetadataCollector()
+        }
+    
+    def scan_and_update(self, source_configs: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Scan multiple sources and update catalog"""
+        results = {'added': 0, 'updated': 0, 'errors': 0}
+        
+        for config in source_configs:
+            source_type = config['type']
+            
+            if source_type not in self.collectors:
+                logging.warning(f"No collector for source type: {source_type}")
+                results['errors'] += 1
+                continue
+            
+            try:
+                collector = self.collectors[source_type]
+                assets = collector.collect_metadata(config)
+                
+                for asset in assets:
+                    # Check if asset already exists (by name and location)
+                    existing = self._find_existing_asset(asset)
+                    
+                    if existing:
+                        # Update existing asset
+                        self._update_existing_asset(existing, asset)
+                        results['updated'] += 1
+                    else:
+                        # Add new asset
+                        self.catalog.register_asset(asset)
+                        results['added'] += 1
+                        
+            except Exception as e:
+                logging.error(f"Error scanning {source_type}: {e}")
+                results['errors'] += 1
+        
+        return results
+    
+    def _find_existing_asset(self, new_asset: DataAsset) -> Optional[DataAsset]:
+        """Find existing asset by name and location"""
+        for asset in self.catalog.assets.values():
+            if asset.name == new_asset.name and asset.location == new_asset.location:
+                return asset
+        return None
+    
+    def _update_existing_asset(self, existing: DataAsset, new_asset: DataAsset):
+        """Update existing asset with new metadata"""
+        existing.schema = new_asset.schema
+        existing.technical_metadata.update(new_asset.technical_metadata)
+        existing.updated_at = datetime.now()
+
+# Example automated scanning
+def example_automated_scanning():
+    """Example of automated metadata scanning"""
+    
+    catalog = DataCatalog()
+    manager = CatalogManager(catalog)
+    
+    # Configure sources to scan
+    source_configs = [
+        {
+            'type': 'database',
+            'connection_string': 'postgresql://user:pass@localhost:5432/ecommerce'
+        },
+        {
+            'type': 'file',
+            'base_path': '/data/warehouse'
+        }
+    ]
+    
+    # Scan and update catalog
+    results = manager.scan_and_update(source_configs)
+    
+    print(f"Scan results: {results}")
+    print(f"Total assets in catalog: {len(catalog.assets)}")
+    
+    return catalog, manager
+
+# catalog, manager = example_automated_scanning()
+```
+
+## Best Practices and Implementation Guidelines
+
+### Data Catalog Best Practices
+
+1. **Comprehensive Metadata Collection**
+   - Automate metadata discovery and collection
+   - Include both technical and business metadata
+   - Maintain schema evolution history
+   - Track data lineage and dependencies
+
+2. **Search and Discovery**
+   - Implement full-text search capabilities
+   - Support faceted search and filtering
+   - Provide intelligent recommendations
+   - Enable column-level search
+
+3. **Governance Integration**
+   - Enforce data classification policies
+   - Track data ownership and stewardship
+   - Support compliance requirements
+   - Integrate with approval workflows
+
+4. **User Experience**
+   - Provide intuitive web interfaces
+   - Support API access for programmatic use
+   - Enable collaborative features (comments, ratings)
+   - Offer personalized recommendations
+
+## Common Use Cases
+
+### Business Applications
+- **Data Discovery** - Help users find relevant datasets
+- **Impact Analysis** - Understand data dependencies
+- **Compliance** - Track sensitive data and access patterns
+- **Data Governance** - Enforce policies and standards
+
+### Technical Benefits
+- **Reduced Data Silos** - Centralized metadata repository
+- **Improved Productivity** - Faster data discovery
+- **Better Collaboration** - Shared understanding of data
+- **Quality Assurance** - Metadata-driven quality checks
+
+## Summary
+
+Data Cataloging provides:
+
+- **Centralized Metadata** - Single source of truth for data assets
+- **Discovery and Search** - Easy data asset discovery
+- **Governance Support** - Policy enforcement and compliance
+- **Collaboration** - Shared data understanding across teams
+
+Key components:
+- Asset registration and metadata management
+- Search and discovery capabilities
+- Automated metadata collection
+- Integration with data governance
+
+---
+
+**Next**: Learn about [Data Privacy and Security](/chapters/data-quality/data-privacy-security) for protecting sensitive data assets.

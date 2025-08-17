@@ -1,0 +1,815 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Lambda vs Kappa Architecture
+
+Lambda and Kappa architectures represent two fundamental approaches to handling both batch and real-time data processing. Understanding their trade-offs is crucial for designing systems that can handle diverse data processing requirements.
+
+## Lambda Architecture
+
+Lambda architecture combines batch and stream processing to provide comprehensive views of data with both accuracy and low latency.
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        A[Raw Data]
+    end
+    
+    subgraph "Batch Layer"
+        B[Master Dataset]
+        C[Batch Processing]
+        D[Batch Views]
+    end
+    
+    subgraph "Speed Layer"
+        E[Stream Processing]
+        F[Real-time Views]
+    end
+    
+    subgraph "Serving Layer"
+        G[Query Engine]
+        H[Merged Views]
+    end
+    
+    A --> B
+    A --> E
+    B --> C
+    C --> D
+    E --> F
+    D --> G
+    F --> G
+    G --> H
+    
+    style B fill:#e3f2fd
+    style E fill:#e8f5e8
+    style G fill:#fff3e0
+`} />
+
+### Lambda Architecture Implementation
+
+```python
+# Lambda Architecture Implementation
+from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+import pandas as pd
+import asyncio
+
+class BatchLayer:
+    """Batch processing layer for historical data"""
+    
+    def __init__(self, storage_path: str):
+        self.storage_path = storage_path
+        self.last_processed_timestamp = None
+    
+    async def process_batch(self, start_time: datetime, end_time: datetime) -> Dict[str, Any]:
+        """Process batch data for a time range"""
+        print(f"Processing batch from {start_time} to {end_time}")
+        
+        # Simulate batch processing
+        raw_data = await self._load_raw_data(start_time, end_time)
+        processed_data = self._transform_data(raw_data)
+        batch_views = self._create_batch_views(processed_data)
+        
+        # Store batch views
+        await self._store_batch_views(batch_views, end_time)
+        self.last_processed_timestamp = end_time
+        
+        return batch_views
+    
+    async def _load_raw_data(self, start_time: datetime, end_time: datetime) -> pd.DataFrame:
+        """Load raw data for batch processing"""
+        # Simulate loading large dataset
+        data = {
+            'user_id': range(1000),
+            'event_type': ['purchase', 'view', 'click'] * 334,
+            'timestamp': [start_time + timedelta(minutes=i) for i in range(1000)],
+            'value': [100 + i for i in range(1000)]
+        }
+        return pd.DataFrame(data)
+    
+    def _transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply complex transformations"""
+        # Complex aggregations and joins
+        result = df.groupby(['user_id', 'event_type']).agg({
+            'value': ['sum', 'mean', 'count'],
+            'timestamp': ['min', 'max']
+        }).reset_index()
+        
+        # Flatten column names
+        result.columns = ['_'.join(col).strip() if col[1] else col[0] 
+                         for col in result.columns.values]
+        
+        return result
+    
+    def _create_batch_views(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+        """Create materialized views from processed data"""
+        return {
+            'user_summary': df.groupby('user_id').agg({
+                'value_sum': 'sum',
+                'value_count': 'sum'
+            }),
+            'event_summary': df.groupby('event_type').agg({
+                'value_sum': 'sum',
+                'value_mean': 'mean'
+            })
+        }
+    
+    async def _store_batch_views(self, views: Dict[str, pd.DataFrame], 
+                                timestamp: datetime):
+        """Store batch views with versioning"""
+        for view_name, df in views.items():
+            # Store with timestamp for versioning
+            storage_key = f"{view_name}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+            print(f"Storing batch view: {storage_key}")
+
+class SpeedLayer:
+    """Real-time processing layer for low-latency updates"""
+    
+    def __init__(self):
+        self.real_time_views = {}
+        self.processing_window = timedelta(minutes=5)
+    
+    async def process_stream(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Process individual events in real-time"""
+        event_type = event.get('event_type')
+        user_id = event.get('user_id')
+        value = event.get('value', 0)
+        timestamp = datetime.fromisoformat(event.get('timestamp'))
+        
+        # Update real-time views
+        await self._update_user_view(user_id, value, timestamp)
+        await self._update_event_view(event_type, value, timestamp)
+        
+        # Clean old data outside processing window
+        await self._cleanup_old_data(timestamp)
+        
+        return self.real_time_views
+    
+    async def _update_user_view(self, user_id: str, value: float, timestamp: datetime):
+        """Update user-specific real-time view"""
+        if 'user_summary' not in self.real_time_views:
+            self.real_time_views['user_summary'] = {}
+        
+        if user_id not in self.real_time_views['user_summary']:
+            self.real_time_views['user_summary'][user_id] = {
+                'value_sum': 0,
+                'value_count': 0,
+                'events': []
+            }
+        
+        user_data = self.real_time_views['user_summary'][user_id]
+        user_data['value_sum'] += value
+        user_data['value_count'] += 1
+        user_data['events'].append({'value': value, 'timestamp': timestamp})
+    
+    async def _update_event_view(self, event_type: str, value: float, timestamp: datetime):
+        """Update event-type real-time view"""
+        if 'event_summary' not in self.real_time_views:
+            self.real_time_views['event_summary'] = {}
+        
+        if event_type not in self.real_time_views['event_summary']:
+            self.real_time_views['event_summary'][event_type] = {
+                'value_sum': 0,
+                'value_count': 0,
+                'events': []
+            }
+        
+        event_data = self.real_time_views['event_summary'][event_type]
+        event_data['value_sum'] += value
+        event_data['value_count'] += 1
+        event_data['events'].append({'value': value, 'timestamp': timestamp})
+    
+    async def _cleanup_old_data(self, current_time: datetime):
+        """Remove data outside the processing window"""
+        cutoff_time = current_time - self.processing_window
+        
+        for view_name, view_data in self.real_time_views.items():
+            for key, data in view_data.items():
+                if 'events' in data:
+                    data['events'] = [
+                        event for event in data['events'] 
+                        if event['timestamp'] > cutoff_time
+                    ]
+                    
+                    # Recalculate aggregates
+                    if data['events']:
+                        data['value_sum'] = sum(e['value'] for e in data['events'])
+                        data['value_count'] = len(data['events'])
+                    else:
+                        data['value_sum'] = 0
+                        data['value_count'] = 0
+
+class ServingLayer:
+    """Serving layer that merges batch and speed layer results"""
+    
+    def __init__(self, batch_layer: BatchLayer, speed_layer: SpeedLayer):
+        self.batch_layer = batch_layer
+        self.speed_layer = speed_layer
+    
+    async def query(self, query_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute query by merging batch and real-time views"""
+        if query_type == "user_summary":
+            return await self._get_user_summary(parameters.get('user_id'))
+        elif query_type == "event_summary":
+            return await self._get_event_summary(parameters.get('event_type'))
+        else:
+            raise ValueError(f"Unknown query type: {query_type}")
+    
+    async def _get_user_summary(self, user_id: str) -> Dict[str, Any]:
+        """Get user summary by merging batch and real-time data"""
+        # Get batch view (historical accurate data)
+        batch_data = await self._get_batch_user_data(user_id)
+        
+        # Get speed layer data (recent real-time data)
+        speed_data = self.speed_layer.real_time_views.get('user_summary', {}).get(user_id, {})
+        
+        # Merge results
+        merged_result = {
+            'user_id': user_id,
+            'batch_value_sum': batch_data.get('value_sum', 0),
+            'batch_value_count': batch_data.get('value_count', 0),
+            'realtime_value_sum': speed_data.get('value_sum', 0),
+            'realtime_value_count': speed_data.get('value_count', 0),
+            'query_timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Calculate totals
+        merged_result['total_value_sum'] = (
+            merged_result['batch_value_sum'] + merged_result['realtime_value_sum']
+        )
+        merged_result['total_value_count'] = (
+            merged_result['batch_value_count'] + merged_result['realtime_value_count']
+        )
+        
+        return merged_result
+    
+    async def _get_batch_user_data(self, user_id: str) -> Dict[str, Any]:
+        """Retrieve user data from batch layer"""
+        # In real implementation, this would query the batch views
+        return {'value_sum': 1000, 'value_count': 50}
+
+class LambdaArchitecture:
+    """Complete Lambda Architecture implementation"""
+    
+    def __init__(self):
+        self.batch_layer = BatchLayer("/data/batch")
+        self.speed_layer = SpeedLayer()
+        self.serving_layer = ServingLayer(self.batch_layer, self.speed_layer)
+        self.is_running = False
+    
+    async def start(self):
+        """Start the Lambda architecture"""
+        self.is_running = True
+        
+        # Start batch processing task
+        batch_task = asyncio.create_task(self._batch_processing_loop())
+        
+        # Start stream processing task
+        stream_task = asyncio.create_task(self._stream_processing_loop())
+        
+        await asyncio.gather(batch_task, stream_task)
+    
+    async def _batch_processing_loop(self):
+        """Continuous batch processing"""
+        while self.is_running:
+            try:
+                # Process batch every hour
+                end_time = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+                start_time = end_time - timedelta(hours=1)
+                
+                await self.batch_layer.process_batch(start_time, end_time)
+                
+                # Wait for next batch cycle
+                await asyncio.sleep(3600)  # 1 hour
+                
+            except Exception as e:
+                print(f"Batch processing error: {e}")
+                await asyncio.sleep(60)  # Retry after 1 minute
+    
+    async def _stream_processing_loop(self):
+        """Simulate continuous stream processing"""
+        while self.is_running:
+            try:
+                # Simulate incoming events
+                event = {
+                    'user_id': f"user_{datetime.utcnow().microsecond % 100}",
+                    'event_type': 'purchase',
+                    'value': 50.0,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                
+                await self.speed_layer.process_stream(event)
+                await asyncio.sleep(0.1)  # Process 10 events per second
+                
+            except Exception as e:
+                print(f"Stream processing error: {e}")
+                await asyncio.sleep(1)
+    
+    async def query(self, query_type: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute query through serving layer"""
+        return await self.serving_layer.query(query_type, parameters)
+    
+    def stop(self):
+        """Stop the Lambda architecture"""
+        self.is_running = False
+```
+
+## Kappa Architecture
+
+Kappa architecture simplifies the Lambda approach by using only stream processing for both real-time and batch workloads.
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        A[Raw Data Stream]
+    end
+    
+    subgraph "Stream Processing Layer"
+        B[Stream Processor 1]
+        C[Stream Processor 2]
+        D[Stream Processor N]
+    end
+    
+    subgraph "Serving Layer"
+        E[Real-time Views]
+        F[Batch Views]
+        G[Query Interface]
+    end
+    
+    A --> B
+    A --> C
+    A --> D
+    B --> E
+    C --> F
+    D --> G
+    
+    style A fill:#e8f5e8
+    style B fill:#e8f5e8
+    style C fill:#e8f5e8
+    style D fill:#e8f5e8
+`} />
+
+### Kappa Architecture Implementation
+
+```python
+# Kappa Architecture Implementation
+from typing import Dict, List, Any, Callable
+import asyncio
+from datetime import datetime, timedelta
+from collections import defaultdict, deque
+
+class StreamProcessor:
+    """Generic stream processor for Kappa architecture"""
+    
+    def __init__(self, processor_id: str, window_size: timedelta = timedelta(minutes=5)):
+        self.processor_id = processor_id
+        self.window_size = window_size
+        self.state = defaultdict(lambda: defaultdict(deque))
+        self.processors: List[Callable] = []
+    
+    def register_processor(self, processor_func: Callable):
+        """Register a processing function"""
+        self.processors.append(processor_func)
+    
+    async def process_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Process a single event through all registered processors"""
+        results = {}
+        
+        for processor in self.processors:
+            try:
+                result = await processor(event, self.state)
+                results[processor.__name__] = result
+            except Exception as e:
+                print(f"Error in processor {processor.__name__}: {e}")
+                results[processor.__name__] = {"error": str(e)}
+        
+        # Clean old state
+        await self._cleanup_state(datetime.fromisoformat(event['timestamp']))
+        
+        return results
+    
+    async def _cleanup_state(self, current_time: datetime):
+        """Clean up old state outside the window"""
+        cutoff_time = current_time - self.window_size
+        
+        for key, time_buckets in self.state.items():
+            for time_bucket, events in list(time_buckets.items()):
+                # Remove events outside window
+                while events and events[0]['timestamp'] < cutoff_time:
+                    events.popleft()
+                
+                # Remove empty buckets
+                if not events:
+                    del time_buckets[time_bucket]
+
+# Processing Functions for Kappa Architecture
+async def user_aggregation_processor(event: Dict[str, Any], 
+                                   state: Dict) -> Dict[str, Any]:
+    """Process user-level aggregations"""
+    user_id = event['user_id']
+    timestamp = datetime.fromisoformat(event['timestamp'])
+    value = event.get('value', 0)
+    
+    # Time-based bucketing (5-minute buckets)
+    time_bucket = timestamp.replace(second=0, microsecond=0)
+    time_bucket = time_bucket.replace(minute=(time_bucket.minute // 5) * 5)
+    
+    # Add event to state
+    state[f"user_{user_id}"][time_bucket].append({
+        'value': value,
+        'timestamp': timestamp,
+        'event_type': event.get('event_type')
+    })
+    
+    # Calculate aggregations across all time buckets for this user
+    total_value = 0
+    total_count = 0
+    
+    for bucket_events in state[f"user_{user_id}"].values():
+        for bucket_event in bucket_events:
+            total_value += bucket_event['value']
+            total_count += 1
+    
+    return {
+        'user_id': user_id,
+        'total_value': total_value,
+        'total_count': total_count,
+        'avg_value': total_value / total_count if total_count > 0 else 0,
+        'window_end': timestamp.isoformat()
+    }
+
+async def event_type_processor(event: Dict[str, Any], 
+                             state: Dict) -> Dict[str, Any]:
+    """Process event-type aggregations"""
+    event_type = event.get('event_type', 'unknown')
+    timestamp = datetime.fromisoformat(event['timestamp'])
+    value = event.get('value', 0)
+    
+    # Time-based bucketing
+    time_bucket = timestamp.replace(second=0, microsecond=0)
+    time_bucket = time_bucket.replace(minute=(time_bucket.minute // 5) * 5)
+    
+    # Add event to state
+    state[f"event_type_{event_type}"][time_bucket].append({
+        'value': value,
+        'timestamp': timestamp,
+        'user_id': event.get('user_id')
+    })
+    
+    # Calculate aggregations
+    total_value = 0
+    total_count = 0
+    unique_users = set()
+    
+    for bucket_events in state[f"event_type_{event_type}"].values():
+        for bucket_event in bucket_events:
+            total_value += bucket_event['value']
+            total_count += 1
+            unique_users.add(bucket_event['user_id'])
+    
+    return {
+        'event_type': event_type,
+        'total_value': total_value,
+        'total_count': total_count,
+        'unique_users': len(unique_users),
+        'avg_value': total_value / total_count if total_count > 0 else 0,
+        'window_end': timestamp.isoformat()
+    }
+
+async def fraud_detection_processor(event: Dict[str, Any], 
+                                  state: Dict) -> Dict[str, Any]:
+    """Real-time fraud detection processor"""
+    user_id = event['user_id']
+    value = event.get('value', 0)
+    timestamp = datetime.fromisoformat(event['timestamp'])
+    
+    # Check for suspicious patterns
+    time_bucket = timestamp.replace(second=0, microsecond=0)
+    
+    # Add current event
+    state[f"fraud_{user_id}"][time_bucket].append({
+        'value': value,
+        'timestamp': timestamp
+    })
+    
+    # Analyze patterns
+    recent_events = []
+    for bucket_events in state[f"fraud_{user_id}"].values():
+        recent_events.extend(bucket_events)
+    
+    # Sort by timestamp
+    recent_events.sort(key=lambda x: x['timestamp'])
+    
+    # Fraud detection rules
+    fraud_indicators = []
+    
+    # Rule 1: High frequency transactions
+    if len(recent_events) > 10:  # More than 10 transactions in window
+        fraud_indicators.append("high_frequency")
+    
+    # Rule 2: High value transactions
+    if value > 1000:
+        fraud_indicators.append("high_value")
+    
+    # Rule 3: Rapid succession of transactions
+    if len(recent_events) >= 2:
+        last_event_time = recent_events[-2]['timestamp']
+        if (timestamp - last_event_time).total_seconds() < 10:
+            fraud_indicators.append("rapid_succession")
+    
+    fraud_score = len(fraud_indicators) * 0.3
+    is_suspicious = fraud_score > 0.5
+    
+    return {
+        'user_id': user_id,
+        'fraud_score': fraud_score,
+        'is_suspicious': is_suspicious,
+        'indicators': fraud_indicators,
+        'timestamp': timestamp.isoformat()
+    }
+
+class KappaArchitecture:
+    """Complete Kappa Architecture implementation"""
+    
+    def __init__(self):
+        self.processors = {}
+        self.results_store = defaultdict(list)
+        self.is_running = False
+    
+    def create_processor(self, processor_id: str, 
+                        window_size: timedelta = timedelta(minutes=5)) -> StreamProcessor:
+        """Create a new stream processor"""
+        processor = StreamProcessor(processor_id, window_size)
+        self.processors[processor_id] = processor
+        return processor
+    
+    async def process_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Process event through all processors"""
+        all_results = {}
+        
+        for processor_id, processor in self.processors.items():
+            results = await processor.process_event(event)
+            all_results[processor_id] = results
+            
+            # Store results for querying
+            self.results_store[processor_id].append({
+                'timestamp': datetime.utcnow(),
+                'results': results
+            })
+            
+            # Keep only recent results (last 1000)
+            if len(self.results_store[processor_id]) > 1000:
+                self.results_store[processor_id] = self.results_store[processor_id][-1000:]
+        
+        return all_results
+    
+    async def start_processing(self, event_stream):
+        """Start processing events from stream"""
+        self.is_running = True
+        
+        async for event in event_stream:
+            if not self.is_running:
+                break
+            
+            try:
+                await self.process_event(event)
+            except Exception as e:
+                print(f"Error processing event: {e}")
+    
+    def query_results(self, processor_id: str, 
+                     time_range: Optional[tuple] = None) -> List[Dict]:
+        """Query processed results"""
+        results = self.results_store.get(processor_id, [])
+        
+        if time_range:
+            start_time, end_time = time_range
+            results = [
+                r for r in results 
+                if start_time <= r['timestamp'] <= end_time
+            ]
+        
+        return results
+    
+    def stop(self):
+        """Stop processing"""
+        self.is_running = False
+
+# Usage Example
+async def simulate_kappa_architecture():
+    """Simulate Kappa architecture with sample data"""
+    
+    # Create Kappa architecture
+    kappa = KappaArchitecture()
+    
+    # Create processors
+    user_processor = kappa.create_processor("user_analytics")
+    user_processor.register_processor(user_aggregation_processor)
+    
+    event_processor = kappa.create_processor("event_analytics")
+    event_processor.register_processor(event_type_processor)
+    
+    fraud_processor = kappa.create_processor("fraud_detection", timedelta(minutes=2))
+    fraud_processor.register_processor(fraud_detection_processor)
+    
+    # Simulate event stream
+    async def generate_events():
+        """Generate sample events"""
+        for i in range(100):
+            yield {
+                'user_id': f"user_{i % 10}",
+                'event_type': ['purchase', 'view', 'click'][i % 3],
+                'value': 50 + (i % 100),
+                'timestamp': (datetime.utcnow() + timedelta(seconds=i)).isoformat()
+            }
+            await asyncio.sleep(0.1)
+    
+    # Process events
+    await kappa.start_processing(generate_events())
+    
+    # Query results
+    user_results = kappa.query_results("user_analytics")
+    fraud_results = kappa.query_results("fraud_detection")
+    
+    print(f"Processed {len(user_results)} user analytics results")
+    print(f"Processed {len(fraud_results)} fraud detection results")
+    
+    return kappa
+```
+
+## Comparison: Lambda vs Kappa
+
+| Aspect | Lambda Architecture | Kappa Architecture |
+|--------|-------------------|-------------------|
+| **Complexity** | High (two processing paths) | Lower (single processing path) |
+| **Accuracy** | High (batch layer provides accuracy) | Depends on stream processing |
+| **Latency** | Low (speed layer) + High (batch layer) | Consistently low |
+| **Maintenance** | Complex (two codebases) | Simpler (one codebase) |
+| **Resource Usage** | Higher (dual processing) | Lower (single processing) |
+| **Fault Tolerance** | High (batch can recover) | Moderate (depends on stream) |
+| **Historical Processing** | Excellent | Good (with replay capability) |
+
+## When to Choose Each Architecture
+
+### Choose Lambda Architecture When:
+
+```python
+# Lambda Architecture Decision Criteria
+class ArchitectureDecisionHelper:
+    
+    @staticmethod
+    def should_use_lambda(requirements: Dict[str, Any]) -> bool:
+        """Determine if Lambda architecture is suitable"""
+        
+        lambda_indicators = 0
+        
+        # High accuracy requirements
+        if requirements.get('accuracy_critical', False):
+            lambda_indicators += 2
+        
+        # Complex batch processing needs
+        if requirements.get('complex_batch_processing', False):
+            lambda_indicators += 2
+        
+        # Historical data reprocessing needs
+        if requirements.get('historical_reprocessing', False):
+            lambda_indicators += 1
+        
+        # Can handle complexity
+        if requirements.get('team_can_handle_complexity', False):
+            lambda_indicators += 1
+        
+        # Different SLAs for batch and real-time
+        if requirements.get('different_slas', False):
+            lambda_indicators += 1
+        
+        return lambda_indicators >= 4
+
+# Example usage
+requirements = {
+    'accuracy_critical': True,
+    'complex_batch_processing': True,
+    'historical_reprocessing': True,
+    'team_can_handle_complexity': True,
+    'different_slas': False
+}
+
+if ArchitectureDecisionHelper.should_use_lambda(requirements):
+    print("Recommend Lambda Architecture")
+else:
+    print("Consider Kappa Architecture")
+```
+
+### Choose Kappa Architecture When:
+
+- **Simplicity is preferred** over complexity
+- **Stream processing** can handle all requirements
+- **Event sourcing** is already in place
+- **Team expertise** is primarily in stream processing
+- **Operational overhead** needs to be minimized
+
+## Hybrid Approaches
+
+Modern architectures often combine elements of both patterns:
+
+```python
+# Hybrid Architecture Example
+class HybridArchitecture:
+    """Combines Lambda and Kappa approaches"""
+    
+    def __init__(self):
+        self.stream_processors = {}  # Kappa-style processors
+        self.batch_jobs = {}         # Lambda-style batch jobs
+        self.routing_rules = {}      # Rules for routing data
+    
+    def route_data(self, event: Dict[str, Any]) -> List[str]:
+        """Determine which processors should handle the event"""
+        processors = []
+        
+        # Route based on event characteristics
+        if event.get('requires_accuracy'):
+            processors.append('batch_processor')
+        
+        if event.get('requires_low_latency'):
+            processors.append('stream_processor')
+        
+        if event.get('event_type') == 'fraud_check':
+            processors.append('fraud_stream_processor')
+        
+        return processors
+    
+    async def process_event(self, event: Dict[str, Any]):
+        """Process event through appropriate processors"""
+        target_processors = self.route_data(event)
+        
+        tasks = []
+        for processor_name in target_processors:
+            if processor_name in self.stream_processors:
+                task = self.stream_processors[processor_name].process_event(event)
+                tasks.append(task)
+        
+        if tasks:
+            await asyncio.gather(*tasks)
+```
+
+## Best Practices
+
+### Lambda Architecture Best Practices
+
+1. **Synchronize Schemas**: Ensure batch and speed layers use the same data schemas
+2. **Version Control**: Maintain version compatibility between layers
+3. **Monitoring**: Monitor both layers independently
+4. **Testing**: Test batch and speed layers separately and together
+
+### Kappa Architecture Best Practices
+
+1. **Event Sourcing**: Design events as immutable facts
+2. **Replay Capability**: Ensure streams can be replayed for reprocessing
+3. **State Management**: Carefully manage processor state
+4. **Backpressure**: Handle varying event rates gracefully
+
+### Common Pitfalls
+
+```python
+# Common Architecture Pitfalls and Solutions
+class ArchitecturePitfalls:
+    
+    @staticmethod
+    def avoid_dual_writes():
+        """Avoid writing to multiple systems simultaneously"""
+        # BAD: Dual writes
+        # write_to_batch_store(data)
+        # write_to_speed_store(data)  # Can fail independently
+        
+        # GOOD: Event-driven approach
+        # publish_event(data)  # Single source of truth
+        pass
+    
+    @staticmethod
+    def handle_schema_evolution():
+        """Handle schema changes gracefully"""
+        # Use schema registry and versioning
+        # Implement backward compatibility
+        # Plan migration strategies
+        pass
+    
+    @staticmethod
+    def manage_complexity():
+        """Keep architecture complexity manageable"""
+        # Start simple and evolve
+        # Document architecture decisions
+        # Automate deployment and monitoring
+        pass
+```
+
+## Summary
+
+Both Lambda and Kappa architectures solve the challenge of processing data at scale with different trade-offs:
+
+- **Lambda Architecture** provides high accuracy through batch processing while maintaining low latency through stream processing, at the cost of increased complexity
+- **Kappa Architecture** simplifies the system by using only stream processing, trading some accuracy guarantees for operational simplicity
+
+The choice depends on your specific requirements for accuracy, latency, complexity tolerance, and team capabilities. Many modern systems adopt hybrid approaches, using the right pattern for each specific use case.
+
+---
+
+**Next**: Learn about [Data Mesh and Data Fabric](/chapters/data-architecture/data-mesh-fabric) to understand modern approaches to distributed data architecture.

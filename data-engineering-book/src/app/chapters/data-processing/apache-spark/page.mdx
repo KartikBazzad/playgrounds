@@ -1,0 +1,664 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Apache Spark
+
+Apache Spark is a unified analytics engine for large-scale data processing that provides high-level APIs in Java, Scala, Python, and R. It supports batch processing, streaming, machine learning, and graph processing workloads with in-memory computing capabilities.
+
+## Spark Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Spark Application"
+        SD[Spark Driver]
+        SC[Spark Context]
+        SM[Spark Session]
+    end
+    
+    subgraph "Cluster Manager"
+        CM1[Standalone]
+        CM2[YARN]
+        CM3[Kubernetes]
+        CM4[Mesos]
+    end
+    
+    subgraph "Worker Nodes"
+        WN1[Worker Node 1]
+        WN2[Worker Node 2]
+        WN3[Worker Node N]
+    end
+    
+    subgraph "Executors"
+        E1[Executor 1]
+        E2[Executor 2]
+        E3[Executor 3]
+        E4[Executor N]
+    end
+    
+    SD --> SC
+    SC --> SM
+    SM --> CM1
+    SM --> CM2
+    SM --> CM3
+    SM --> CM4
+    
+    CM1 --> WN1
+    CM2 --> WN2
+    CM3 --> WN3
+    
+    WN1 --> E1
+    WN2 --> E2
+    WN3 --> E3
+    WN3 --> E4
+    
+    style SD fill:#e3f2fd
+    style E1 fill:#e8f5e8
+`} />
+
+## Core RDD Operations
+
+### Resilient Distributed Datasets
+
+RDDs are Spark's fundamental data structure - immutable, distributed collections that can be processed in parallel. This example demonstrates the core RDD operations and Spark's lazy evaluation model.
+
+```python
+# Apache Spark RDD operations
+from pyspark import SparkContext, SparkConf
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
+import logging
+from typing import List, Dict, Any
+
+class SparkProcessor:
+    """
+    Apache Spark data processor demonstrating RDD and DataFrame operations
+    Shows both low-level RDD API and high-level DataFrame API usage
+    """
+    
+    def __init__(self, app_name: str = "SparkDataProcessor", master: str = "local[*]"):
+        # Configure Spark with application name and execution mode
+        conf = SparkConf().setAppName(app_name).setMaster(master)
+        self.sc = SparkContext(conf=conf)  # Low-level RDD API
+        self.spark = SparkSession.builder.config(conf=conf).getOrCreate()  # High-level DataFrame API
+        self.sc.setLogLevel("WARN")  # Reduce verbose logging
+        self.logger = logging.getLogger(__name__)
+    
+    def basic_rdd_operations(self, data: List[int]):
+        """
+        Demonstrate basic RDD operations and lazy evaluation
+        Shows the difference between transformations and actions
+        """
+        
+        # Create RDD from Python list - distributed across cluster
+        rdd = self.sc.parallelize(data)
+        
+        # Transformations (lazy evaluation - not executed until action)
+        filtered_rdd = rdd.filter(lambda x: x > 10)  # Keep only numbers > 10
+        squared_rdd = filtered_rdd.map(lambda x: x ** 2)  # Square each number
+        
+        # Actions (trigger computation across the cluster)
+        result = squared_rdd.collect()  # Bring all data to driver
+        count = squared_rdd.count()     # Count elements
+        sum_result = squared_rdd.reduce(lambda a, b: a + b)  # Sum all elements
+        
+        self.logger.info(f"Filtered and squared: {result}")
+        self.logger.info(f"Count: {count}, Sum: {sum_result}")
+        
+        return result
+    
+    def word_count_example(self, text_data: List[str]):
+        """Classic word count example"""
+        
+        # Create RDD from text data
+        text_rdd = self.sc.parallelize(text_data)
+        
+        # Word count pipeline
+        word_counts = text_rdd \
+            .flatMap(lambda line: line.split()) \
+            .map(lambda word: word.lower().strip('.,!?";')) \
+            .filter(lambda word: len(word) > 0) \
+            .map(lambda word: (word, 1)) \
+            .reduceByKey(lambda a, b: a + b) \
+            .sortBy(lambda x: x[1], ascending=False)
+        
+        # Get top 10 words
+        top_words = word_counts.take(10)
+        
+        self.logger.info("Top 10 words:")
+        for word, count in top_words:
+            self.logger.info(f"{word}: {count}")
+        
+        return top_words
+    
+    def advanced_rdd_operations(self, sales_data: List[Dict]):
+        """Advanced RDD operations with key-value pairs"""
+        
+        # Create RDD from sales data
+        sales_rdd = self.sc.parallelize(sales_data)
+        
+        # Extract key-value pairs (product_id, amount)
+        product_sales = sales_rdd.map(lambda x: (x['product_id'], x['amount']))
+        
+        # Group by key and calculate statistics
+        product_stats = product_sales.groupByKey().mapValues(lambda amounts: {
+            'total_sales': sum(amounts),
+            'count': len(list(amounts)),
+            'avg_sale': sum(amounts) / len(list(amounts))
+        })
+        
+        # Join with product information
+        product_info = self.sc.parallelize([
+            ('prod_1', {'name': 'Laptop', 'category': 'Electronics'}),
+            ('prod_2', {'name': 'Book', 'category': 'Education'}),
+            ('prod_3', {'name': 'Phone', 'category': 'Electronics'})
+        ])
+        
+        # Join operations
+        joined_data = product_stats.join(product_info)
+        results = joined_data.collect()
+        
+        self.logger.info("Product sales analysis:")
+        for product_id, (stats, info) in results:
+            self.logger.info(f"{info['name']}: ${stats['total_sales']:.2f} total")
+        
+        return results
+
+# Example usage
+def rdd_examples():
+    """Run RDD examples"""
+    
+    processor = SparkProcessor("RDD Examples")
+    
+    # Basic operations
+    numbers = list(range(1, 21))
+    result = processor.basic_rdd_operations(numbers)
+    
+    # Word count
+    text_data = [
+        "Apache Spark is a unified analytics engine",
+        "Spark provides high-level APIs in multiple languages",
+        "RDDs are the fundamental data structure in Spark"
+    ]
+    processor.word_count_example(text_data)
+    
+    # Sales analysis
+    sales_data = [
+        {'product_id': 'prod_1', 'amount': 1200.0},
+        {'product_id': 'prod_2', 'amount': 25.0},
+        {'product_id': 'prod_1', 'amount': 1500.0},
+        {'product_id': 'prod_3', 'amount': 800.0}
+    ]
+    
+    processor.advanced_rdd_operations(sales_data)
+    processor.sc.stop()
+
+# rdd_examples()
+```
+
+## DataFrames and SQL
+
+### Structured Data Processing
+
+```python
+# Spark DataFrame operations
+from pyspark.sql.window import Window
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import LinearRegression
+
+class SparkDataFrameProcessor:
+    """Spark DataFrame processor for structured data"""
+    
+    def __init__(self, app_name: str = "DataFrameProcessor"):
+        self.spark = SparkSession.builder \
+            .appName(app_name) \
+            .config("spark.sql.adaptive.enabled", "true") \
+            .getOrCreate()
+        
+        self.logger = logging.getLogger(__name__)
+    
+    def create_sample_data(self):
+        """Create sample datasets for examples"""
+        
+        # Customer data
+        customers_data = [
+            (1, "John Doe", "john@email.com", "Premium", "2023-01-15"),
+            (2, "Jane Smith", "jane@email.com", "Standard", "2023-02-20"),
+            (3, "Bob Johnson", "bob@email.com", "Premium", "2023-01-10"),
+            (4, "Alice Brown", "alice@email.com", "Basic", "2023-03-05")
+        ]
+        
+        customers_schema = StructType([
+            StructField("customer_id", IntegerType(), True),
+            StructField("name", StringType(), True),
+            StructField("email", StringType(), True),
+            StructField("tier", StringType(), True),
+            StructField("signup_date", StringType(), True)
+        ])
+        
+        # Orders data
+        orders_data = [
+            (101, 1, "2023-04-01", 1200.50, "Electronics"),
+            (102, 2, "2023-04-02", 85.99, "Books"),
+            (103, 1, "2023-04-03", 299.99, "Clothing"),
+            (104, 3, "2023-04-04", 1599.00, "Electronics"),
+            (105, 4, "2023-04-05", 45.50, "Books")
+        ]
+        
+        orders_schema = StructType([
+            StructField("order_id", IntegerType(), True),
+            StructField("customer_id", IntegerType(), True),
+            StructField("order_date", StringType(), True),
+            StructField("amount", DoubleType(), True),
+            StructField("category", StringType(), True)
+        ])
+        
+        # Create DataFrames
+        customers_df = self.spark.createDataFrame(customers_data, customers_schema)
+        orders_df = self.spark.createDataFrame(orders_data, orders_schema)
+        
+        # Convert date columns
+        customers_df = customers_df.withColumn("signup_date", 
+                                             to_date(col("signup_date"), "yyyy-MM-dd"))
+        orders_df = orders_df.withColumn("order_date", 
+                                       to_date(col("order_date"), "yyyy-MM-dd"))
+        
+        return customers_df, orders_df
+    
+    def advanced_analytics(self, customer_orders):
+        """Advanced analytics with window functions"""
+        
+        # Window specifications
+        customer_window = Window.partitionBy("customer_id").orderBy("order_date")
+        category_window = Window.partitionBy("category").orderBy(desc("amount"))
+        
+        # Advanced transformations
+        enriched_orders = customer_orders.withColumn(
+            "order_number", row_number().over(customer_window)
+        ).withColumn(
+            "running_total", sum("amount").over(customer_window)
+        ).withColumn(
+            "category_rank", rank().over(category_window)
+        )
+        
+        self.logger.info("Enriched orders with analytics:")
+        enriched_orders.select(
+            "name", "order_date", "amount", "category",
+            "order_number", "running_total", "category_rank"
+        ).show()
+        
+        # Customer lifetime value
+        clv = enriched_orders.groupBy("customer_id", "name", "tier").agg(
+            sum("amount").alias("total_spent"),
+            count("order_id").alias("total_orders"),
+            avg("amount").alias("avg_order_value")
+        )
+        
+        self.logger.info("Customer Lifetime Value Analysis:")
+        clv.orderBy(desc("total_spent")).show()
+        
+        return clv
+    
+    def sql_operations(self, customers_df, orders_df):
+        """SQL operations on DataFrames"""
+        
+        # Register DataFrames as temporary views
+        customers_df.createOrReplaceTempView("customers")
+        orders_df.createOrReplaceTempView("orders")
+        
+        # Complex SQL query
+        sql_query = """
+        SELECT 
+            c.name,
+            c.tier,
+            COUNT(o.order_id) as total_orders,
+            SUM(o.amount) as total_spent,
+            AVG(o.amount) as avg_order_value
+        FROM customers c
+        LEFT JOIN orders o ON c.customer_id = o.customer_id
+        GROUP BY c.customer_id, c.name, c.tier
+        ORDER BY total_spent DESC
+        """
+        
+        result = self.spark.sql(sql_query)
+        
+        self.logger.info("SQL Query Results:")
+        result.show()
+        
+        return result
+    
+    def machine_learning_example(self, customer_orders):
+        """Simple ML example with Spark MLlib"""
+        
+        # Prepare features for ML
+        ml_data = customer_orders.groupBy("customer_id").agg(
+            sum("amount").alias("total_spent"),
+            count("order_id").alias("order_count"),
+            avg("amount").alias("avg_order_value")
+        )
+        
+        # Feature engineering
+        feature_cols = ["order_count", "avg_order_value"]
+        assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
+        
+        ml_dataset = assembler.transform(ml_data)
+        
+        # Split data
+        train_data, test_data = ml_dataset.randomSplit([0.8, 0.2], seed=42)
+        
+        # Linear regression to predict total_spent
+        lr = LinearRegression(featuresCol="features", labelCol="total_spent")
+        lr_model = lr.fit(train_data)
+        
+        # Make predictions
+        predictions = lr_model.transform(test_data)
+        
+        self.logger.info("ML Predictions:")
+        predictions.select("customer_id", "total_spent", "prediction").show()
+        
+        return lr_model
+
+# Example usage
+def dataframe_examples():
+    """Run DataFrame examples"""
+    
+    processor = SparkDataFrameProcessor()
+    
+    # Create sample data
+    customers_df, orders_df = processor.create_sample_data()
+    
+    # Join data
+    customer_orders = customers_df.join(orders_df, "customer_id", "inner")
+    
+    # Advanced analytics
+    clv = processor.advanced_analytics(customer_orders)
+    
+    # SQL operations
+    sql_results = processor.sql_operations(customers_df, orders_df)
+    
+    # Machine learning
+    ml_model = processor.machine_learning_example(customer_orders)
+    
+    processor.spark.stop()
+
+# dataframe_examples()
+```
+
+## Spark Streaming
+
+### Real-Time Data Processing
+
+```python
+# Spark Structured Streaming
+from pyspark.sql.streaming import StreamingQuery
+from pyspark.sql.functions import window, from_json
+
+class SparkStreamingProcessor:
+    """Spark Structured Streaming processor"""
+    
+    def __init__(self, app_name: str = "StreamingProcessor"):
+        self.spark = SparkSession.builder \
+            .appName(app_name) \
+            .config("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint") \
+            .getOrCreate()
+        
+        self.logger = logging.getLogger(__name__)
+    
+    def create_kafka_stream(self, kafka_servers: str, topics: List[str]):
+        """Create Kafka streaming DataFrame"""
+        
+        return self.spark \
+            .readStream \
+            .format("kafka") \
+            .option("kafka.bootstrap.servers", kafka_servers) \
+            .option("subscribe", ",".join(topics)) \
+            .option("startingOffsets", "latest") \
+            .load()
+    
+    def real_time_analytics(self):
+        """Real-time analytics example"""
+        
+        # Define schema for incoming events
+        event_schema = StructType([
+            StructField("user_id", StringType(), True),
+            StructField("event_type", StringType(), True),
+            StructField("timestamp", TimestampType(), True),
+            StructField("value", DoubleType(), True)
+        ])
+        
+        # Create stream (simulated)
+        raw_stream = self.spark \
+            .readStream \
+            .format("rate") \
+            .option("rowsPerSecond", 10) \
+            .load()
+        
+        # Transform to event format
+        events = raw_stream.select(
+            (col("value") % 1000).cast("string").alias("user_id"),
+            when(col("value") % 3 == 0, "purchase")
+            .when(col("value") % 3 == 1, "page_view")
+            .otherwise("login").alias("event_type"),
+            col("timestamp"),
+            (col("value") % 100).cast("double").alias("value")
+        )
+        
+        # Real-time aggregations
+        windowed_counts = events \
+            .withWatermark("timestamp", "10 minutes") \
+            .groupBy(
+                window(col("timestamp"), "5 minutes", "1 minute"),
+                col("event_type")
+            ) \
+            .agg(
+                count("*").alias("event_count"),
+                sum("value").alias("total_value"),
+                avg("value").alias("avg_value")
+            )
+        
+        # Output to console
+        query = windowed_counts \
+            .writeStream \
+            .outputMode("update") \
+            .format("console") \
+            .option("truncate", False) \
+            .start()
+        
+        return query
+    
+    def fraud_detection_stream(self):
+        """Real-time fraud detection"""
+        
+        # Simulated transaction stream
+        transactions = self.spark \
+            .readStream \
+            .format("rate") \
+            .option("rowsPerSecond", 5) \
+            .load()
+        
+        # Transform to transaction format
+        transaction_data = transactions.select(
+            col("value").cast("string").alias("transaction_id"),
+            (col("value") % 100).cast("string").alias("user_id"),
+            (col("value") % 1000 + 10).cast("double").alias("amount"),
+            col("timestamp")
+        )
+        
+        # Fraud detection logic
+        fraud_alerts = transaction_data \
+            .withWatermark("timestamp", "5 minutes") \
+            .groupBy(
+                col("user_id"),
+                window(col("timestamp"), "10 minutes")
+            ) \
+            .agg(
+                count("*").alias("transaction_count"),
+                sum("amount").alias("total_amount")
+            ) \
+            .filter(
+                (col("transaction_count") > 5) |
+                (col("total_amount") > 500)
+            ) \
+            .select(
+                col("user_id"),
+                col("window.start").alias("window_start"),
+                col("transaction_count"),
+                col("total_amount"),
+                lit("POTENTIAL_FRAUD").alias("alert_type")
+            )
+        
+        # Output fraud alerts
+        fraud_query = fraud_alerts \
+            .writeStream \
+            .outputMode("update") \
+            .format("console") \
+            .start()
+        
+        return fraud_query
+
+# Example usage
+def streaming_examples():
+    """Run streaming examples"""
+    
+    processor = SparkStreamingProcessor()
+    
+    # Start real-time analytics
+    analytics_query = processor.real_time_analytics()
+    
+    # Start fraud detection
+    fraud_query = processor.fraud_detection_stream()
+    
+    # Wait for termination
+    try:
+        analytics_query.awaitTermination(timeout=30)
+    except:
+        pass
+    
+    # Stop streams
+    analytics_query.stop()
+    fraud_query.stop()
+    processor.spark.stop()
+
+# streaming_examples()
+```
+
+## Performance Optimization
+
+### Spark Tuning Best Practices
+
+```python
+# Spark performance optimization
+class SparkOptimizer:
+    """Spark performance optimization utilities"""
+    
+    @staticmethod
+    def create_optimized_session(app_name: str):
+        """Create optimized Spark session"""
+        
+        return SparkSession.builder \
+            .appName(app_name) \
+            .config("spark.executor.memory", "4g") \
+            .config("spark.executor.cores", "4") \
+            .config("spark.sql.adaptive.enabled", "true") \
+            .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+            .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+            .config("spark.sql.shuffle.partitions", "200") \
+            .getOrCreate()
+    
+    @staticmethod
+    def optimize_dataframe(df, cache=True, repartition=None):
+        """Apply DataFrame optimizations"""
+        
+        optimized_df = df
+        
+        # Caching
+        if cache:
+            optimized_df = optimized_df.cache()
+        
+        # Repartitioning
+        if repartition:
+            optimized_df = optimized_df.repartition(repartition)
+        
+        return optimized_df
+    
+    @staticmethod
+    def analyze_query_plan(df):
+        """Analyze query execution plan"""
+        
+        print("=== Query Plan ===")
+        df.explain(mode="simple")
+
+# Performance monitoring
+class SparkMonitor:
+    """Spark application monitoring"""
+    
+    def __init__(self, spark_session):
+        self.spark = spark_session
+        self.sc = spark_session.sparkContext
+    
+    def get_application_info(self):
+        """Get application information"""
+        
+        return {
+            'application_id': self.sc.applicationId,
+            'application_name': self.sc.appName,
+            'spark_version': self.sc.version,
+            'default_parallelism': self.sc.defaultParallelism
+        }
+```
+
+## Best Practices
+
+### Spark Development Guidelines
+
+1. **Memory Management**
+   - Configure executor memory appropriately
+   - Use appropriate storage levels for caching
+   - Monitor memory usage and garbage collection
+
+2. **Partitioning**
+   - Choose optimal number of partitions
+   - Use appropriate partitioning strategies
+   - Avoid small files problem
+
+3. **Performance**
+   - Enable adaptive query execution
+   - Use columnar storage formats (Parquet)
+   - Optimize join strategies
+
+4. **Development**
+   - Use DataFrames over RDDs when possible
+   - Leverage Catalyst optimizer
+   - Write efficient transformations
+
+## Common Use Cases
+
+### Business Applications
+- **ETL pipelines** - Large-scale data transformation
+- **Real-time analytics** - Stream processing and monitoring
+- **Machine learning** - Distributed ML model training
+- **Data warehousing** - Data lake processing
+
+### Technical Benefits
+- **Unified platform** - Batch and stream processing
+- **In-memory computing** - Fast iterative algorithms
+- **Fault tolerance** - Automatic recovery from failures
+- **Scalability** - Horizontal scaling across clusters
+
+## Summary
+
+Apache Spark provides:
+
+- **Unified analytics** - Single platform for multiple workloads
+- **High performance** - In-memory computing capabilities
+- **Ease of use** - High-level APIs in multiple languages
+- **Fault tolerance** - Resilient distributed datasets
+
+Key components:
+- RDDs for low-level distributed computing
+- DataFrames for structured data processing
+- Streaming for real-time analytics
+- MLlib for machine learning
+
+---
+
+**Next**: Learn about [Apache Hadoop](/chapters/data-processing/apache-hadoop) for distributed storage and processing.

@@ -1,0 +1,750 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Quality Frameworks
+
+Data quality frameworks provide systematic approaches to measuring, monitoring, and improving data quality across the entire data lifecycle. These frameworks establish standards, processes, and metrics to ensure data meets business requirements and supports reliable decision-making.
+
+## Data Quality Dimensions
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Quality Dimensions"
+        A[Accuracy] --> B[Completeness]
+        B --> C[Consistency]
+        C --> D[Timeliness]
+        D --> E[Validity]
+        E --> F[Uniqueness]
+        F --> G[Integrity]
+        G --> H[Accessibility]
+    end
+    
+    subgraph "Quality Metrics"
+        QM1[Error Rates]
+        QM2[Missing Values %]
+        QM3[Duplicate Records %]
+        QM4[Schema Violations]
+        QM5[Freshness Score]
+    end
+    
+    A --> QM1
+    B --> QM2
+    F --> QM3
+    E --> QM4
+    D --> QM5
+    
+    style A fill:#e3f2fd
+    style B fill:#e8f5e8
+    style C fill:#fff3e0
+`} />
+
+## Comprehensive Data Quality Framework
+
+### Data Quality Assessment Engine
+
+```python
+# Data Quality Framework Implementation
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Tuple
+import logging
+from dataclasses import dataclass
+from enum import Enum
+import re
+import json
+
+class QualityDimension(Enum):
+    """Data quality dimensions"""
+    ACCURACY = "accuracy"
+    COMPLETENESS = "completeness"
+    CONSISTENCY = "consistency"
+    TIMELINESS = "timeliness"
+    VALIDITY = "validity"
+    UNIQUENESS = "uniqueness"
+    INTEGRITY = "integrity"
+
+@dataclass
+class QualityRule:
+    """Data quality rule definition"""
+    name: str
+    dimension: QualityDimension
+    description: str
+    severity: str  # 'critical', 'high', 'medium', 'low'
+    threshold: float
+    column: Optional[str] = None
+
+@dataclass
+class QualityResult:
+    """Quality assessment result"""
+    rule_name: str
+    dimension: QualityDimension
+    passed: bool
+    score: float
+    threshold: float
+    details: Dict[str, Any]
+    severity: str
+
+class DataQualityFramework:
+    """Comprehensive data quality assessment framework"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.rules: List[QualityRule] = []
+        self.results: List[QualityResult] = []
+    
+    def add_rule(self, rule: QualityRule) -> None:
+        """Add quality rule to framework"""
+        self.rules.append(rule)
+        self.logger.info(f"Added quality rule: {rule.name}")
+    
+    def assess_completeness(self, df: pd.DataFrame, column: str = None, 
+                          threshold: float = 0.95) -> QualityResult:
+        """Assess data completeness"""
+        
+        if column:
+            # Single column completeness
+            total_records = len(df)
+            non_null_records = df[column].notna().sum()
+            completeness_score = non_null_records / total_records if total_records > 0 else 0
+            
+            details = {
+                'column': column,
+                'total_records': total_records,
+                'non_null_records': int(non_null_records),
+                'null_records': total_records - int(non_null_records),
+                'null_percentage': (1 - completeness_score) * 100
+            }
+        else:
+            # Overall dataset completeness
+            total_cells = df.size
+            non_null_cells = df.notna().sum().sum()
+            completeness_score = non_null_cells / total_cells if total_cells > 0 else 0
+            
+            # Per-column completeness
+            column_completeness = {}
+            for col in df.columns:
+                col_completeness = df[col].notna().sum() / len(df)
+                column_completeness[col] = {
+                    'completeness': col_completeness,
+                    'missing_count': df[col].isna().sum()
+                }
+            
+            details = {
+                'total_cells': total_cells,
+                'non_null_cells': int(non_null_cells),
+                'overall_completeness': completeness_score,
+                'column_completeness': column_completeness
+            }
+        
+        return QualityResult(
+            rule_name=f"completeness_{column or 'overall'}",
+            dimension=QualityDimension.COMPLETENESS,
+            passed=completeness_score >= threshold,
+            score=completeness_score,
+            threshold=threshold,
+            details=details,
+            severity='high'
+        )
+    
+    def assess_uniqueness(self, df: pd.DataFrame, columns: List[str], 
+                         threshold: float = 0.95) -> QualityResult:
+        """Assess data uniqueness"""
+        
+        if len(columns) == 1:
+            # Single column uniqueness
+            column = columns[0]
+            total_records = len(df)
+            unique_records = df[column].nunique()
+            duplicate_records = total_records - unique_records
+            uniqueness_score = unique_records / total_records if total_records > 0 else 0
+            
+            # Find duplicate values
+            duplicates = df[df[column].duplicated(keep=False)][column].value_counts()
+            
+            details = {
+                'column': column,
+                'total_records': total_records,
+                'unique_records': unique_records,
+                'duplicate_records': duplicate_records,
+                'duplicate_percentage': (duplicate_records / total_records) * 100,
+                'top_duplicates': duplicates.head(10).to_dict()
+            }
+        else:
+            # Multi-column uniqueness
+            total_records = len(df)
+            unique_combinations = len(df.drop_duplicates(subset=columns))
+            duplicate_records = total_records - unique_combinations
+            uniqueness_score = unique_combinations / total_records if total_records > 0 else 0
+            
+            details = {
+                'columns': columns,
+                'total_records': total_records,
+                'unique_combinations': unique_combinations,
+                'duplicate_records': duplicate_records,
+                'duplicate_percentage': (duplicate_records / total_records) * 100
+            }
+        
+        return QualityResult(
+            rule_name=f"uniqueness_{'_'.join(columns)}",
+            dimension=QualityDimension.UNIQUENESS,
+            passed=uniqueness_score >= threshold,
+            score=uniqueness_score,
+            threshold=threshold,
+            details=details,
+            severity='medium'
+        )
+    
+    def assess_validity(self, df: pd.DataFrame, column: str, 
+                       validation_rules: Dict[str, Any], 
+                       threshold: float = 0.95) -> QualityResult:
+        """Assess data validity using various validation rules"""
+        
+        total_records = len(df)
+        valid_records = 0
+        validation_details = {}
+        
+        for rule_name, rule_config in validation_rules.items():
+            rule_type = rule_config.get('type')
+            
+            if rule_type == 'regex':
+                pattern = rule_config['pattern']
+                valid_mask = df[column].astype(str).str.match(pattern, na=False)
+                rule_valid_count = valid_mask.sum()
+                
+            elif rule_type == 'range':
+                min_val = rule_config.get('min')
+                max_val = rule_config.get('max')
+                valid_mask = df[column].between(min_val, max_val, inclusive='both')
+                rule_valid_count = valid_mask.sum()
+                
+            elif rule_type == 'enum':
+                allowed_values = rule_config['values']
+                valid_mask = df[column].isin(allowed_values)
+                rule_valid_count = valid_mask.sum()
+                
+            elif rule_type == 'custom':
+                custom_func = rule_config['function']
+                valid_mask = df[column].apply(custom_func)
+                rule_valid_count = valid_mask.sum()
+            
+            else:
+                continue
+            
+            validation_details[rule_name] = {
+                'valid_count': int(rule_valid_count),
+                'invalid_count': total_records - int(rule_valid_count),
+                'validity_rate': rule_valid_count / total_records if total_records > 0 else 0
+            }
+            
+            valid_records += rule_valid_count
+        
+        # Calculate overall validity (average across all rules)
+        if validation_details:
+            avg_validity = sum(details['validity_rate'] for details in validation_details.values()) / len(validation_details)
+        else:
+            avg_validity = 0
+        
+        details = {
+            'column': column,
+            'total_records': total_records,
+            'validation_rules': validation_details,
+            'overall_validity': avg_validity
+        }
+        
+        return QualityResult(
+            rule_name=f"validity_{column}",
+            dimension=QualityDimension.VALIDITY,
+            passed=avg_validity >= threshold,
+            score=avg_validity,
+            threshold=threshold,
+            details=details,
+            severity='high'
+        )
+    
+    def assess_consistency(self, df: pd.DataFrame, consistency_rules: List[Dict], 
+                          threshold: float = 0.95) -> QualityResult:
+        """Assess data consistency across columns or datasets"""
+        
+        total_records = len(df)
+        consistent_records = 0
+        consistency_details = {}
+        
+        for rule in consistency_rules:
+            rule_name = rule['name']
+            rule_type = rule['type']
+            
+            if rule_type == 'cross_column':
+                # Check consistency between columns
+                col1, col2 = rule['columns']
+                condition = rule['condition']
+                
+                if condition == 'equal':
+                    consistent_mask = df[col1] == df[col2]
+                elif condition == 'greater':
+                    consistent_mask = df[col1] > df[col2]
+                elif condition == 'less':
+                    consistent_mask = df[col1] < df[col2]
+                elif condition == 'custom':
+                    custom_func = rule['function']
+                    consistent_mask = df.apply(custom_func, axis=1)
+                
+                rule_consistent_count = consistent_mask.sum()
+                
+            elif rule_type == 'format_consistency':
+                # Check format consistency within a column
+                column = rule['column']
+                expected_format = rule['format']
+                
+                if expected_format == 'date':
+                    try:
+                        pd.to_datetime(df[column], errors='coerce')
+                        consistent_mask = pd.to_datetime(df[column], errors='coerce').notna()
+                    except:
+                        consistent_mask = pd.Series([False] * len(df))
+                elif expected_format == 'numeric':
+                    consistent_mask = pd.to_numeric(df[column], errors='coerce').notna()
+                else:
+                    # Custom format validation
+                    pattern = rule.get('pattern', '.*')
+                    consistent_mask = df[column].astype(str).str.match(pattern, na=False)
+                
+                rule_consistent_count = consistent_mask.sum()
+            
+            consistency_details[rule_name] = {
+                'consistent_count': int(rule_consistent_count),
+                'inconsistent_count': total_records - int(rule_consistent_count),
+                'consistency_rate': rule_consistent_count / total_records if total_records > 0 else 0
+            }
+            
+            consistent_records += rule_consistent_count
+        
+        # Calculate overall consistency
+        if consistency_details:
+            avg_consistency = sum(details['consistency_rate'] for details in consistency_details.values()) / len(consistency_details)
+        else:
+            avg_consistency = 0
+        
+        details = {
+            'total_records': total_records,
+            'consistency_rules': consistency_details,
+            'overall_consistency': avg_consistency
+        }
+        
+        return QualityResult(
+            rule_name="consistency_assessment",
+            dimension=QualityDimension.CONSISTENCY,
+            passed=avg_consistency >= threshold,
+            score=avg_consistency,
+            threshold=threshold,
+            details=details,
+            severity='medium'
+        )
+    
+    def assess_timeliness(self, df: pd.DataFrame, timestamp_column: str, 
+                         max_age_hours: int = 24, threshold: float = 0.95) -> QualityResult:
+        """Assess data timeliness"""
+        
+        current_time = datetime.now()
+        cutoff_time = current_time - timedelta(hours=max_age_hours)
+        
+        # Convert timestamp column to datetime
+        df[timestamp_column] = pd.to_datetime(df[timestamp_column], errors='coerce')
+        
+        total_records = len(df)
+        timely_records = (df[timestamp_column] >= cutoff_time).sum()
+        timeliness_score = timely_records / total_records if total_records > 0 else 0
+        
+        # Calculate age statistics
+        ages = (current_time - df[timestamp_column]).dt.total_seconds() / 3600  # in hours
+        
+        details = {
+            'timestamp_column': timestamp_column,
+            'total_records': total_records,
+            'timely_records': int(timely_records),
+            'outdated_records': total_records - int(timely_records),
+            'max_age_threshold_hours': max_age_hours,
+            'average_age_hours': ages.mean(),
+            'oldest_record_hours': ages.max(),
+            'newest_record_hours': ages.min()
+        }
+        
+        return QualityResult(
+            rule_name=f"timeliness_{timestamp_column}",
+            dimension=QualityDimension.TIMELINESS,
+            passed=timeliness_score >= threshold,
+            score=timeliness_score,
+            threshold=threshold,
+            details=details,
+            severity='medium'
+        )
+    
+    def run_assessment(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Run comprehensive data quality assessment"""
+        
+        self.results = []
+        
+        # Run all configured rules
+        for rule in self.rules:
+            try:
+                if rule.dimension == QualityDimension.COMPLETENESS:
+                    result = self.assess_completeness(df, rule.column, rule.threshold)
+                elif rule.dimension == QualityDimension.UNIQUENESS:
+                    columns = [rule.column] if rule.column else df.columns.tolist()
+                    result = self.assess_uniqueness(df, columns, rule.threshold)
+                # Add other dimension assessments as needed
+                
+                self.results.append(result)
+                
+            except Exception as e:
+                self.logger.error(f"Error running rule {rule.name}: {str(e)}")
+        
+        # Calculate overall quality score
+        if self.results:
+            overall_score = sum(result.score for result in self.results) / len(self.results)
+            passed_rules = sum(1 for result in self.results if result.passed)
+            total_rules = len(self.results)
+        else:
+            overall_score = 0
+            passed_rules = 0
+            total_rules = 0
+        
+        return {
+            'overall_score': overall_score,
+            'passed_rules': passed_rules,
+            'total_rules': total_rules,
+            'pass_rate': passed_rules / total_rules if total_rules > 0 else 0,
+            'results': self.results,
+            'assessment_timestamp': datetime.now().isoformat()
+        }
+    
+    def generate_report(self, assessment_results: Dict[str, Any]) -> str:
+        """Generate data quality assessment report"""
+        
+        report = []
+        report.append("=" * 60)
+        report.append("DATA QUALITY ASSESSMENT REPORT")
+        report.append("=" * 60)
+        report.append(f"Assessment Date: {assessment_results['assessment_timestamp']}")
+        report.append(f"Overall Quality Score: {assessment_results['overall_score']:.2%}")
+        report.append(f"Rules Passed: {assessment_results['passed_rules']}/{assessment_results['total_rules']}")
+        report.append(f"Pass Rate: {assessment_results['pass_rate']:.2%}")
+        report.append("")
+        
+        # Group results by dimension
+        dimension_results = {}
+        for result in assessment_results['results']:
+            dim = result.dimension.value
+            if dim not in dimension_results:
+                dimension_results[dim] = []
+            dimension_results[dim].append(result)
+        
+        for dimension, results in dimension_results.items():
+            report.append(f"{dimension.upper()} ASSESSMENT")
+            report.append("-" * 40)
+            
+            for result in results:
+                status = "PASS" if result.passed else "FAIL"
+                report.append(f"Rule: {result.rule_name}")
+                report.append(f"Status: {status}")
+                report.append(f"Score: {result.score:.2%} (Threshold: {result.threshold:.2%})")
+                report.append(f"Severity: {result.severity}")
+                
+                # Add specific details based on dimension
+                if result.dimension == QualityDimension.COMPLETENESS:
+                    details = result.details
+                    if 'column' in details:
+                        report.append(f"Column: {details['column']}")
+                        report.append(f"Missing Records: {details['null_records']}")
+                        report.append(f"Missing Percentage: {details['null_percentage']:.2f}%")
+                
+                report.append("")
+        
+        return "\n".join(report)
+
+# Example usage and testing
+def example_data_quality_assessment():
+    """Example of comprehensive data quality assessment"""
+    
+    # Create sample dataset with quality issues
+    np.random.seed(42)
+    sample_data = {
+        'customer_id': list(range(1, 1001)) + [999, 998],  # Duplicates
+        'email': [f'user{i}@example.com' for i in range(1, 1001)] + ['invalid-email', None],
+        'age': list(np.random.randint(18, 80, 1000)) + [150, None],  # Invalid age
+        'registration_date': pd.date_range('2023-01-01', periods=1000, freq='D').tolist() + [None, '2025-01-01'],
+        'status': np.random.choice(['active', 'inactive', 'pending'], 1002).tolist()
+    }
+    
+    df = pd.DataFrame(sample_data)
+    
+    # Initialize quality framework
+    quality_framework = DataQualityFramework()
+    
+    # Add quality rules
+    quality_framework.add_rule(QualityRule(
+        name="customer_id_completeness",
+        dimension=QualityDimension.COMPLETENESS,
+        description="Customer ID should be complete",
+        severity="critical",
+        threshold=0.99,
+        column="customer_id"
+    ))
+    
+    quality_framework.add_rule(QualityRule(
+        name="customer_id_uniqueness",
+        dimension=QualityDimension.UNIQUENESS,
+        description="Customer ID should be unique",
+        severity="critical",
+        threshold=0.99,
+        column="customer_id"
+    ))
+    
+    # Run assessment
+    assessment_results = quality_framework.run_assessment(df)
+    
+    # Generate and print report
+    report = quality_framework.generate_report(assessment_results)
+    print(report)
+    
+    return assessment_results
+
+# example_data_quality_assessment()
+```
+
+## Data Quality Monitoring System
+
+### Real-time Quality Monitoring
+
+```python
+# Real-time data quality monitoring system
+import asyncio
+from datetime import datetime
+import json
+from typing import Callable, Dict, List
+import pandas as pd
+
+class QualityMonitor:
+    """Real-time data quality monitoring system"""
+    
+    def __init__(self, quality_framework: DataQualityFramework):
+        self.quality_framework = quality_framework
+        self.alerts: List[Dict] = []
+        self.monitoring_active = False
+        self.alert_callbacks: List[Callable] = []
+    
+    def add_alert_callback(self, callback: Callable) -> None:
+        """Add callback function for quality alerts"""
+        self.alert_callbacks.append(callback)
+    
+    async def monitor_stream(self, data_stream, batch_size: int = 1000, 
+                           interval_seconds: int = 60) -> None:
+        """Monitor streaming data quality"""
+        
+        self.monitoring_active = True
+        batch_data = []
+        
+        while self.monitoring_active:
+            try:
+                # Collect batch of data
+                for _ in range(batch_size):
+                    if hasattr(data_stream, '__next__'):
+                        record = next(data_stream)
+                        batch_data.append(record)
+                
+                if batch_data:
+                    # Convert to DataFrame
+                    df = pd.DataFrame(batch_data)
+                    
+                    # Run quality assessment
+                    results = self.quality_framework.run_assessment(df)
+                    
+                    # Check for quality issues
+                    await self._check_quality_alerts(results)
+                    
+                    # Clear batch
+                    batch_data = []
+                
+                # Wait for next interval
+                await asyncio.sleep(interval_seconds)
+                
+            except Exception as e:
+                await self._send_alert({
+                    'type': 'monitoring_error',
+                    'message': f"Error in quality monitoring: {str(e)}",
+                    'timestamp': datetime.now().isoformat(),
+                    'severity': 'high'
+                })
+    
+    async def _check_quality_alerts(self, assessment_results: Dict) -> None:
+        """Check assessment results for quality alerts"""
+        
+        overall_score = assessment_results['overall_score']
+        pass_rate = assessment_results['pass_rate']
+        
+        # Overall quality alert
+        if overall_score < 0.8:
+            await self._send_alert({
+                'type': 'overall_quality_degradation',
+                'message': f"Overall data quality score dropped to {overall_score:.2%}",
+                'score': overall_score,
+                'timestamp': datetime.now().isoformat(),
+                'severity': 'high' if overall_score < 0.6 else 'medium'
+            })
+        
+        # Rule-specific alerts
+        for result in assessment_results['results']:
+            if not result.passed:
+                await self._send_alert({
+                    'type': 'rule_failure',
+                    'rule_name': result.rule_name,
+                    'dimension': result.dimension.value,
+                    'score': result.score,
+                    'threshold': result.threshold,
+                    'severity': result.severity,
+                    'details': result.details,
+                    'timestamp': datetime.now().isoformat()
+                })
+    
+    async def _send_alert(self, alert: Dict) -> None:
+        """Send quality alert to registered callbacks"""
+        
+        self.alerts.append(alert)
+        
+        # Execute alert callbacks
+        for callback in self.alert_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(alert)
+                else:
+                    callback(alert)
+            except Exception as e:
+                print(f"Error executing alert callback: {str(e)}")
+    
+    def stop_monitoring(self) -> None:
+        """Stop quality monitoring"""
+        self.monitoring_active = False
+    
+    def get_alert_summary(self) -> Dict[str, Any]:
+        """Get summary of quality alerts"""
+        
+        if not self.alerts:
+            return {'total_alerts': 0, 'by_severity': {}, 'by_type': {}}
+        
+        # Group by severity
+        by_severity = {}
+        for alert in self.alerts:
+            severity = alert.get('severity', 'unknown')
+            by_severity[severity] = by_severity.get(severity, 0) + 1
+        
+        # Group by type
+        by_type = {}
+        for alert in self.alerts:
+            alert_type = alert.get('type', 'unknown')
+            by_type[alert_type] = by_type.get(alert_type, 0) + 1
+        
+        return {
+            'total_alerts': len(self.alerts),
+            'by_severity': by_severity,
+            'by_type': by_type,
+            'recent_alerts': self.alerts[-10:]  # Last 10 alerts
+        }
+
+# Alert handlers
+async def email_alert_handler(alert: Dict) -> None:
+    """Send email alert for quality issues"""
+    print(f"EMAIL ALERT: {alert['type']} - {alert['message']}")
+
+async def slack_alert_handler(alert: Dict) -> None:
+    """Send Slack alert for quality issues"""
+    print(f"SLACK ALERT: {alert['type']} - {alert['message']}")
+
+def webhook_alert_handler(alert: Dict) -> None:
+    """Send webhook alert for quality issues"""
+    print(f"WEBHOOK ALERT: {json.dumps(alert, indent=2)}")
+
+# Example monitoring setup
+async def setup_quality_monitoring():
+    """Example of setting up quality monitoring"""
+    
+    # Initialize quality framework
+    quality_framework = DataQualityFramework()
+    
+    # Add quality rules
+    quality_framework.add_rule(QualityRule(
+        name="completeness_check",
+        dimension=QualityDimension.COMPLETENESS,
+        description="Data completeness monitoring",
+        severity="high",
+        threshold=0.95
+    ))
+    
+    # Initialize monitor
+    monitor = QualityMonitor(quality_framework)
+    
+    # Add alert handlers
+    monitor.add_alert_callback(email_alert_handler)
+    monitor.add_alert_callback(slack_alert_handler)
+    monitor.add_alert_callback(webhook_alert_handler)
+    
+    print("Quality monitoring system initialized")
+    return monitor
+
+# asyncio.run(setup_quality_monitoring())
+```
+
+## Best Practices
+
+### Data Quality Implementation Guidelines
+
+1. **Proactive Quality Design**
+   - Define quality requirements early in data pipeline design
+   - Implement quality checks at multiple pipeline stages
+   - Use schema validation and data contracts
+
+2. **Comprehensive Monitoring**
+   - Monitor all quality dimensions continuously
+   - Set up automated alerts for quality degradation
+   - Track quality metrics over time
+
+3. **Root Cause Analysis**
+   - Investigate quality issues systematically
+   - Document common quality problems and solutions
+   - Implement preventive measures
+
+4. **Quality Governance**
+   - Establish data quality standards and policies
+   - Define roles and responsibilities for data quality
+   - Regular quality assessments and reviews
+
+## Common Use Cases
+
+### Business Applications
+- **Customer Data Quality** - Ensure accurate customer information
+- **Financial Data Validation** - Validate transaction and reporting data
+- **Product Catalog Quality** - Maintain accurate product information
+- **Regulatory Compliance** - Meet data quality requirements for regulations
+
+### Technical Benefits
+- **Improved Decision Making** - Reliable data for business decisions
+- **Reduced Processing Errors** - Fewer pipeline failures due to bad data
+- **Cost Savings** - Reduced costs from data quality issues
+- **Enhanced Trust** - Increased confidence in data systems
+
+## Summary
+
+Data Quality Frameworks provide:
+
+- **Systematic Assessment** - Structured approach to measuring data quality
+- **Multiple Dimensions** - Comprehensive coverage of quality aspects
+- **Automated Monitoring** - Real-time quality tracking and alerting
+- **Actionable Insights** - Clear metrics and recommendations for improvement
+
+Key components:
+- Quality dimensions and metrics
+- Automated assessment engines
+- Real-time monitoring systems
+- Alert and notification mechanisms
+
+---
+
+**Next**: Learn about [Data Lineage](/chapters/data-quality/data-lineage) for tracking data flow and transformations.

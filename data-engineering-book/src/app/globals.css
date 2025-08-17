@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Code block styling improvements */
+pre {
+  background-color: #f8f9fa !important;
+  border: 1px solid #e9ecef !important;
+  border-radius: 8px !important;
+  padding: 1rem !important;
+  overflow-x: auto !important;
+  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+}
+
+code {
+  font-family: 'Fira Code', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+  font-size: 0.875rem !important;
+}
+
+/* Remove text selection highlighting that looks like selected text */
+pre code {
+  background: transparent !important;
+  color: #24292e !important;
+  text-shadow: none !important;
+}
+
+/* Fix syntax highlighting colors to avoid selection appearance */
+pre code .hljs-keyword {
+  color: #d73a49 !important;
+  font-weight: 600 !important;
+}
+
+pre code .hljs-string {
+  color: #032f62 !important;
+}
+
+pre code .hljs-comment {
+  color: #6a737d !important;
+  font-style: italic !important;
+}
+
+pre code .hljs-function {
+  color: #6f42c1 !important;
+}
+
+pre code .hljs-number {
+  color: #005cc5 !important;
+}
+
+pre code .hljs-built_in {
+  color: #e36209 !important;
+}
+
+/* Dark mode code blocks */
+@media (prefers-color-scheme: dark) {
+  pre {
+    background-color: #1e1e1e !important;
+    border-color: #3e3e3e !important;
+  }
+  
+  pre code {
+    color: #d4d4d4 !important;
+  }
+  
+  pre code .hljs-keyword {
+    color: #569cd6 !important;
+  }
+  
+  pre code .hljs-string {
+    color: #ce9178 !important;
+  }
+  
+  pre code .hljs-comment {
+    color: #6a9955 !important;
+  }
+  
+  pre code .hljs-function {
+    color: #dcdcaa !important;
+  }
+  
+  pre code .hljs-number {
+    color: #b5cea8 !important;
+  }
+  
+  pre code .hljs-built_in {
+    color: #4ec9b0 !important;
+  }
+}

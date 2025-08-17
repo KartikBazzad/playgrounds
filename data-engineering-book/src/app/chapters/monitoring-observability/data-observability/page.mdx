@@ -1,0 +1,787 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Data Observability
+
+Data observability provides comprehensive visibility into data systems, enabling teams to understand data health, quality, and lineage across the entire data stack. It combines monitoring, alerting, and root cause analysis to ensure data reliability and trustworthiness.
+
+## Data Observability Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Data Sources"
+        DS1[Databases]
+        DS2[APIs]
+        DS3[Files]
+        DS4[Streams]
+    end
+    
+    subgraph "Data Pipeline"
+        DP1[Ingestion]
+        DP2[Processing]
+        DP3[Transformation]
+        DP4[Storage]
+    end
+    
+    subgraph "Observability Layer"
+        OL1[Data Quality Monitoring]
+        OL2[Schema Change Detection]
+        OL3[Lineage Tracking]
+        OL4[Anomaly Detection]
+    end
+    
+    subgraph "Analysis & Alerting"
+        AA1[Root Cause Analysis]
+        AA2[Impact Assessment]
+        AA3[Alert Management]
+        AA4[Incident Response]
+    end
+    
+    subgraph "Visualization"
+        V1[Data Health Dashboard]
+        V2[Lineage Visualization]
+        V3[Quality Reports]
+        V4[Incident Timeline]
+    end
+    
+    DS1 --> DP1
+    DS2 --> DP2
+    DS3 --> DP3
+    DS4 --> DP4
+    
+    DP1 --> OL1
+    DP2 --> OL2
+    DP3 --> OL3
+    DP4 --> OL4
+    
+    OL1 --> AA1
+    OL2 --> AA2
+    OL3 --> AA3
+    OL4 --> AA4
+    
+    AA1 --> V1
+    AA2 --> V2
+    AA3 --> V3
+    AA4 --> V4
+    
+    style DS1 fill:#e3f2fd
+    style DP1 fill:#e8f5e8
+    style OL1 fill:#fff3e0
+    style AA1 fill:#f3e5f5
+    style V1 fill:#fce4ec
+`} />
+
+## Comprehensive Data Observability System
+
+### Core Observability Framework
+
+```python
+# Comprehensive Data Observability System
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass, field
+from enum import Enum
+import json
+import logging
+import hashlib
+from collections import defaultdict, deque
+import threading
+import time
+from scipy import stats
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+
+class DataHealthStatus(Enum):
+    """Data health status levels"""
+    HEALTHY = "healthy"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    UNKNOWN = "unknown"
+
+class AnomalyType(Enum):
+    """Types of data anomalies"""
+    VOLUME = "volume"
+    QUALITY = "quality"
+    SCHEMA = "schema"
+    FRESHNESS = "freshness"
+    DISTRIBUTION = "distribution"
+
+@dataclass
+class DataAssetProfile:
+    """Profile of a data asset"""
+    asset_id: str
+    asset_name: str
+    asset_type: str
+    schema_hash: str
+    row_count: int
+    column_count: int
+    data_size_bytes: int
+    last_updated: datetime
+    quality_score: float
+    freshness_score: float
+    completeness_score: float
+    uniqueness_score: float
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'asset_id': self.asset_id,
+            'asset_name': self.asset_name,
+            'asset_type': self.asset_type,
+            'schema_hash': self.schema_hash,
+            'row_count': self.row_count,
+            'column_count': self.column_count,
+            'data_size_bytes': self.data_size_bytes,
+            'last_updated': self.last_updated.isoformat(),
+            'quality_score': self.quality_score,
+            'freshness_score': self.freshness_score,
+            'completeness_score': self.completeness_score,
+            'uniqueness_score': self.uniqueness_score
+        }
+
+@dataclass
+class DataAnomaly:
+    """Data anomaly detection result"""
+    anomaly_id: str
+    asset_id: str
+    anomaly_type: AnomalyType
+    severity: DataHealthStatus
+    detected_at: datetime
+    description: str
+    actual_value: Any
+    expected_range: Tuple[Any, Any]
+    confidence_score: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'anomaly_id': self.anomaly_id,
+            'asset_id': self.asset_id,
+            'anomaly_type': self.anomaly_type.value,
+            'severity': self.severity.value,
+            'detected_at': self.detected_at.isoformat(),
+            'description': self.description,
+            'actual_value': self.actual_value,
+            'expected_range': self.expected_range,
+            'confidence_score': self.confidence_score,
+            'metadata': self.metadata
+        }
+
+class DataProfiler:
+    """Profiles data assets for observability"""
+    
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+    
+    def profile_dataframe(self, df: pd.DataFrame, asset_id: str, 
+                         asset_name: str) -> DataAssetProfile:
+        """Create comprehensive profile of DataFrame"""
+        
+        # Calculate schema hash
+        schema_info = {
+            'columns': list(df.columns),
+            'dtypes': {col: str(dtype) for col, dtype in df.dtypes.items()}
+        }
+        schema_hash = hashlib.md5(
+            json.dumps(schema_info, sort_keys=True).encode()
+        ).hexdigest()
+        
+        # Calculate quality metrics
+        quality_score = self._calculate_quality_score(df)
+        freshness_score = self._calculate_freshness_score(df)
+        completeness_score = self._calculate_completeness_score(df)
+        uniqueness_score = self._calculate_uniqueness_score(df)
+        
+        return DataAssetProfile(
+            asset_id=asset_id,
+            asset_name=asset_name,
+            asset_type='dataframe',
+            schema_hash=schema_hash,
+            row_count=len(df),
+            column_count=len(df.columns),
+            data_size_bytes=df.memory_usage(deep=True).sum(),
+            last_updated=datetime.now(),
+            quality_score=quality_score,
+            freshness_score=freshness_score,
+            completeness_score=completeness_score,
+            uniqueness_score=uniqueness_score
+        )
+    
+    def _calculate_quality_score(self, df: pd.DataFrame) -> float:
+        """Calculate overall data quality score"""
+        if df.empty:
+            return 0.0
+        
+        # Quality factors
+        null_ratio = df.isnull().sum().sum() / (len(df) * len(df.columns))
+        quality_score = 1.0 - null_ratio
+        
+        # Check for duplicate rows
+        duplicate_ratio = df.duplicated().sum() / len(df)
+        quality_score -= duplicate_ratio * 0.5
+        
+        return max(0.0, min(1.0, quality_score))
+    
+    def _calculate_freshness_score(self, df: pd.DataFrame) -> float:
+        """Calculate data freshness score"""
+        # Look for timestamp columns
+        timestamp_cols = []
+        for col in df.columns:
+            if df[col].dtype in ['datetime64[ns]', 'object']:
+                try:
+                    pd.to_datetime(df[col].dropna().head(100))
+                    timestamp_cols.append(col)
+                except:
+                    continue
+        
+        if not timestamp_cols:
+            return 0.5  # Unknown freshness
+        
+        # Use the most recent timestamp
+        latest_timestamps = []
+        for col in timestamp_cols:
+            try:
+                ts_series = pd.to_datetime(df[col].dropna())
+                if not ts_series.empty:
+                    latest_timestamps.append(ts_series.max())
+            except:
+                continue
+        
+        if not latest_timestamps:
+            return 0.5
+        
+        latest_time = max(latest_timestamps)
+        hours_old = (datetime.now() - latest_time.to_pydatetime()).total_seconds() / 3600
+        
+        # Freshness score decreases with age
+        if hours_old < 1:
+            return 1.0
+        elif hours_old < 24:
+            return 1.0 - (hours_old / 24) * 0.3
+        elif hours_old < 168:  # 1 week
+            return 0.7 - ((hours_old - 24) / 144) * 0.4
+        else:
+            return 0.3
+    
+    def _calculate_completeness_score(self, df: pd.DataFrame) -> float:
+        """Calculate data completeness score"""
+        if df.empty:
+            return 0.0
+        
+        total_cells = len(df) * len(df.columns)
+        non_null_cells = total_cells - df.isnull().sum().sum()
+        return non_null_cells / total_cells
+    
+    def _calculate_uniqueness_score(self, df: pd.DataFrame) -> float:
+        """Calculate data uniqueness score"""
+        if df.empty:
+            return 0.0
+        
+        unique_rows = len(df.drop_duplicates())
+        return unique_rows / len(df)
+
+class AnomalyDetector:
+    """Detects anomalies in data assets"""
+    
+    def __init__(self, sensitivity: float = 0.1):
+        self.sensitivity = sensitivity
+        self.historical_profiles: Dict[str, List[DataAssetProfile]] = defaultdict(list)
+        self.isolation_forests: Dict[str, IsolationForest] = {}
+        self.scalers: Dict[str, StandardScaler] = {}
+        self.logger = logging.getLogger(__name__)
+    
+    def add_profile(self, profile: DataAssetProfile):
+        """Add profile to historical data"""
+        self.historical_profiles[profile.asset_id].append(profile)
+        
+        # Keep only recent profiles (last 100)
+        if len(self.historical_profiles[profile.asset_id]) > 100:
+            self.historical_profiles[profile.asset_id] = \
+                self.historical_profiles[profile.asset_id][-100:]
+    
+    def detect_anomalies(self, current_profile: DataAssetProfile) -> List[DataAnomaly]:
+        """Detect anomalies in current profile"""
+        anomalies = []
+        asset_id = current_profile.asset_id
+        
+        # Add current profile to history
+        self.add_profile(current_profile)
+        
+        # Need at least 10 historical profiles for anomaly detection
+        if len(self.historical_profiles[asset_id]) < 10:
+            return anomalies
+        
+        # Volume anomaly detection
+        volume_anomaly = self._detect_volume_anomaly(current_profile)
+        if volume_anomaly:
+            anomalies.append(volume_anomaly)
+        
+        # Quality anomaly detection
+        quality_anomaly = self._detect_quality_anomaly(current_profile)
+        if quality_anomaly:
+            anomalies.append(quality_anomaly)
+        
+        # Schema anomaly detection
+        schema_anomaly = self._detect_schema_anomaly(current_profile)
+        if schema_anomaly:
+            anomalies.append(schema_anomaly)
+        
+        # Freshness anomaly detection
+        freshness_anomaly = self._detect_freshness_anomaly(current_profile)
+        if freshness_anomaly:
+            anomalies.append(freshness_anomaly)
+        
+        return anomalies
+    
+    def _detect_volume_anomaly(self, profile: DataAssetProfile) -> Optional[DataAnomaly]:
+        """Detect volume anomalies"""
+        asset_id = profile.asset_id
+        historical = self.historical_profiles[asset_id][:-1]  # Exclude current
+        
+        if len(historical) < 5:
+            return None
+        
+        historical_counts = [p.row_count for p in historical]
+        mean_count = np.mean(historical_counts)
+        std_count = np.std(historical_counts)
+        
+        # Z-score based anomaly detection
+        if std_count > 0:
+            z_score = abs(profile.row_count - mean_count) / std_count
+            
+            if z_score > 3:  # 3 sigma rule
+                severity = DataHealthStatus.CRITICAL if z_score > 5 else DataHealthStatus.WARNING
+                
+                return DataAnomaly(
+                    anomaly_id=f"vol_{asset_id}_{int(time.time())}",
+                    asset_id=asset_id,
+                    anomaly_type=AnomalyType.VOLUME,
+                    severity=severity,
+                    detected_at=datetime.now(),
+                    description=f"Row count {profile.row_count} deviates significantly from expected {mean_count:.0f}",
+                    actual_value=profile.row_count,
+                    expected_range=(mean_count - 2*std_count, mean_count + 2*std_count),
+                    confidence_score=min(1.0, z_score / 5.0)
+                )
+        
+        return None
+    
+    def _detect_quality_anomaly(self, profile: DataAssetProfile) -> Optional[DataAnomaly]:
+        """Detect quality anomalies"""
+        asset_id = profile.asset_id
+        historical = self.historical_profiles[asset_id][:-1]
+        
+        if len(historical) < 5:
+            return None
+        
+        historical_quality = [p.quality_score for p in historical]
+        mean_quality = np.mean(historical_quality)
+        
+        # Quality drop detection
+        quality_drop = mean_quality - profile.quality_score
+        
+        if quality_drop > 0.2:  # 20% quality drop
+            severity = DataHealthStatus.CRITICAL if quality_drop > 0.4 else DataHealthStatus.WARNING
+            
+            return DataAnomaly(
+                anomaly_id=f"qual_{asset_id}_{int(time.time())}",
+                asset_id=asset_id,
+                anomaly_type=AnomalyType.QUALITY,
+                severity=severity,
+                detected_at=datetime.now(),
+                description=f"Quality score {profile.quality_score:.2f} dropped from expected {mean_quality:.2f}",
+                actual_value=profile.quality_score,
+                expected_range=(mean_quality - 0.1, mean_quality + 0.1),
+                confidence_score=min(1.0, quality_drop / 0.5)
+            )
+        
+        return None
+    
+    def _detect_schema_anomaly(self, profile: DataAssetProfile) -> Optional[DataAnomaly]:
+        """Detect schema changes"""
+        asset_id = profile.asset_id
+        historical = self.historical_profiles[asset_id][:-1]
+        
+        if not historical:
+            return None
+        
+        # Check if schema hash changed
+        latest_schema = historical[-1].schema_hash
+        
+        if profile.schema_hash != latest_schema:
+            return DataAnomaly(
+                anomaly_id=f"schema_{asset_id}_{int(time.time())}",
+                asset_id=asset_id,
+                anomaly_type=AnomalyType.SCHEMA,
+                severity=DataHealthStatus.WARNING,
+                detected_at=datetime.now(),
+                description="Schema change detected",
+                actual_value=profile.schema_hash,
+                expected_range=(latest_schema, latest_schema),
+                confidence_score=1.0
+            )
+        
+        return None
+    
+    def _detect_freshness_anomaly(self, profile: DataAssetProfile) -> Optional[DataAnomaly]:
+        """Detect freshness anomalies"""
+        if profile.freshness_score < 0.3:  # Very stale data
+            return DataAnomaly(
+                anomaly_id=f"fresh_{profile.asset_id}_{int(time.time())}",
+                asset_id=profile.asset_id,
+                anomaly_type=AnomalyType.FRESHNESS,
+                severity=DataHealthStatus.CRITICAL if profile.freshness_score < 0.1 else DataHealthStatus.WARNING,
+                detected_at=datetime.now(),
+                description=f"Data freshness score {profile.freshness_score:.2f} indicates stale data",
+                actual_value=profile.freshness_score,
+                expected_range=(0.7, 1.0),
+                confidence_score=1.0 - profile.freshness_score
+            )
+        
+        return None
+
+class DataObservabilityEngine:
+    """Main data observability engine"""
+    
+    def __init__(self):
+        self.profiler = DataProfiler()
+        self.anomaly_detector = AnomalyDetector()
+        self.asset_profiles: Dict[str, DataAssetProfile] = {}
+        self.anomalies: List[DataAnomaly] = []
+        self.health_status: Dict[str, DataHealthStatus] = {}
+        self.logger = logging.getLogger(__name__)
+        
+        # Start background monitoring
+        self._start_background_monitoring()
+    
+    def observe_asset(self, df: pd.DataFrame, asset_id: str, 
+                     asset_name: str) -> Dict[str, Any]:
+        """Observe a data asset and detect anomalies"""
+        
+        # Profile the asset
+        profile = self.profiler.profile_dataframe(df, asset_id, asset_name)
+        
+        # Detect anomalies
+        detected_anomalies = self.anomaly_detector.detect_anomalies(profile)
+        
+        # Update asset profile
+        self.asset_profiles[asset_id] = profile
+        
+        # Add anomalies
+        self.anomalies.extend(detected_anomalies)
+        
+        # Update health status
+        self._update_health_status(asset_id, detected_anomalies)
+        
+        # Log observation
+        self.logger.info(f"Observed asset {asset_name}: {len(detected_anomalies)} anomalies detected")
+        
+        return {
+            'asset_id': asset_id,
+            'profile': profile.to_dict(),
+            'anomalies': [a.to_dict() for a in detected_anomalies],
+            'health_status': self.health_status.get(asset_id, DataHealthStatus.UNKNOWN).value,
+            'observed_at': datetime.now().isoformat()
+        }
+    
+    def get_asset_health(self, asset_id: str = None) -> Dict[str, Any]:
+        """Get health status of assets"""
+        if asset_id:
+            return {
+                'asset_id': asset_id,
+                'health_status': self.health_status.get(asset_id, DataHealthStatus.UNKNOWN).value,
+                'last_profile': self.asset_profiles.get(asset_id, {}).to_dict() if asset_id in self.asset_profiles else None,
+                'recent_anomalies': [
+                    a.to_dict() for a in self.anomalies[-10:]
+                    if a.asset_id == asset_id
+                ]
+            }
+        else:
+            # Overall health summary
+            health_counts = defaultdict(int)
+            for status in self.health_status.values():
+                health_counts[status.value] += 1
+            
+            return {
+                'total_assets': len(self.asset_profiles),
+                'health_distribution': dict(health_counts),
+                'total_anomalies': len(self.anomalies),
+                'critical_assets': [
+                    asset_id for asset_id, status in self.health_status.items()
+                    if status == DataHealthStatus.CRITICAL
+                ]
+            }
+    
+    def get_anomaly_report(self, hours: int = 24) -> Dict[str, Any]:
+        """Get anomaly report for specified time period"""
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        recent_anomalies = [
+            a for a in self.anomalies
+            if a.detected_at >= cutoff_time
+        ]
+        
+        # Group by type and severity
+        by_type = defaultdict(int)
+        by_severity = defaultdict(int)
+        by_asset = defaultdict(int)
+        
+        for anomaly in recent_anomalies:
+            by_type[anomaly.anomaly_type.value] += 1
+            by_severity[anomaly.severity.value] += 1
+            by_asset[anomaly.asset_id] += 1
+        
+        return {
+            'time_period_hours': hours,
+            'total_anomalies': len(recent_anomalies),
+            'anomalies_by_type': dict(by_type),
+            'anomalies_by_severity': dict(by_severity),
+            'anomalies_by_asset': dict(by_asset),
+            'recent_anomalies': [a.to_dict() for a in recent_anomalies[-10:]]
+        }
+    
+    def _update_health_status(self, asset_id: str, anomalies: List[DataAnomaly]):
+        """Update health status based on anomalies"""
+        if not anomalies:
+            self.health_status[asset_id] = DataHealthStatus.HEALTHY
+        else:
+            # Determine worst severity
+            severities = [a.severity for a in anomalies]
+            if DataHealthStatus.CRITICAL in severities:
+                self.health_status[asset_id] = DataHealthStatus.CRITICAL
+            elif DataHealthStatus.WARNING in severities:
+                self.health_status[asset_id] = DataHealthStatus.WARNING
+            else:
+                self.health_status[asset_id] = DataHealthStatus.HEALTHY
+    
+    def _start_background_monitoring(self):
+        """Start background monitoring tasks"""
+        def cleanup_old_anomalies():
+            while True:
+                try:
+                    # Remove anomalies older than 7 days
+                    cutoff_time = datetime.now() - timedelta(days=7)
+                    self.anomalies = [
+                        a for a in self.anomalies
+                        if a.detected_at >= cutoff_time
+                    ]
+                    time.sleep(3600)  # Run every hour
+                except Exception as e:
+                    self.logger.error(f"Background cleanup error: {e}")
+                    time.sleep(3600)
+        
+        thread = threading.Thread(target=cleanup_old_anomalies, daemon=True)
+        thread.start()
+        self.logger.info("Started background monitoring")
+
+# Example usage
+def example_data_observability():
+    """Example of comprehensive data observability"""
+    
+    # Initialize observability engine
+    engine = DataObservabilityEngine()
+    
+    # Simulate multiple data assets over time
+    print("=== DATA OBSERVABILITY SIMULATION ===")
+    
+    # Asset 1: Customer data with normal patterns
+    for i in range(15):
+        # Normal data with slight variations
+        base_size = 1000
+        variation = np.random.normal(0, 50)
+        size = max(100, int(base_size + variation))
+        
+        customer_data = pd.DataFrame({
+            'customer_id': range(size),
+            'name': [f'Customer_{j}' for j in range(size)],
+            'email': [f'user{j}@example.com' for j in range(size)],
+            'created_at': pd.date_range('2023-01-01', periods=size, freq='H'),
+            'status': np.random.choice(['active', 'inactive'], size, p=[0.8, 0.2])
+        })
+        
+        # Introduce some quality issues occasionally
+        if i > 10:
+            # Add some nulls
+            null_indices = np.random.choice(size, size//10, replace=False)
+            customer_data.loc[null_indices, 'email'] = None
+        
+        result = engine.observe_asset(customer_data, 'customer_data', 'Customer Database')
+        
+        if i % 5 == 0:
+            print(f"Observation {i+1}: {len(result['anomalies'])} anomalies, "
+                  f"Health: {result['health_status']}")
+    
+    # Asset 2: Sales data with volume anomaly
+    for i in range(10):
+        # Introduce volume anomaly in iteration 7
+        if i == 7:
+            size = 5000  # Sudden spike
+        else:
+            size = 800 + np.random.randint(-50, 50)
+        
+        sales_data = pd.DataFrame({
+            'sale_id': range(size),
+            'customer_id': np.random.randint(1, 1000, size),
+            'amount': np.random.exponential(50, size),
+            'sale_date': pd.date_range('2023-01-01', periods=size, freq='15min'),
+            'product_category': np.random.choice(['A', 'B', 'C'], size)
+        })
+        
+        result = engine.observe_asset(sales_data, 'sales_data', 'Sales Database')
+        
+        if result['anomalies']:
+            print(f"Sales observation {i+1}: ANOMALY DETECTED - {result['anomalies'][0]['description']}")
+    
+    # Get comprehensive health report
+    print("\n=== HEALTH REPORT ===")
+    overall_health = engine.get_asset_health()
+    print(f"Total Assets: {overall_health['total_assets']}")
+    print(f"Health Distribution: {overall_health['health_distribution']}")
+    print(f"Critical Assets: {overall_health['critical_assets']}")
+    
+    # Get anomaly report
+    print("\n=== ANOMALY REPORT ===")
+    anomaly_report = engine.get_anomaly_report(hours=24)
+    print(f"Total Anomalies (24h): {anomaly_report['total_anomalies']}")
+    print(f"By Type: {anomaly_report['anomalies_by_type']}")
+    print(f"By Severity: {anomaly_report['anomalies_by_severity']}")
+    
+    # Individual asset health
+    print("\n=== INDIVIDUAL ASSET HEALTH ===")
+    for asset_id in ['customer_data', 'sales_data']:
+        asset_health = engine.get_asset_health(asset_id)
+        print(f"{asset_id}: {asset_health['health_status']}")
+        print(f"  Recent anomalies: {len(asset_health['recent_anomalies'])}")
+    
+    return engine
+
+# engine = example_data_observability()
+```
+
+## Advanced Observability Features
+
+### Real-time Data Quality Monitoring
+
+```python
+# Real-time data quality monitoring
+class RealTimeQualityMonitor:
+    """Real-time data quality monitoring"""
+    
+    def __init__(self, engine: DataObservabilityEngine):
+        self.engine = engine
+        self.quality_thresholds = {
+            'completeness': 0.95,
+            'uniqueness': 0.98,
+            'freshness': 0.8,
+            'overall_quality': 0.9
+        }
+        self.logger = logging.getLogger(__name__)
+    
+    def monitor_stream(self, data_stream, asset_id: str, window_size: int = 1000):
+        """Monitor streaming data quality"""
+        buffer = []
+        
+        for record in data_stream:
+            buffer.append(record)
+            
+            # Process when buffer is full
+            if len(buffer) >= window_size:
+                df = pd.DataFrame(buffer)
+                
+                # Observe the batch
+                result = self.engine.observe_asset(df, asset_id, f"Stream_{asset_id}")
+                
+                # Check quality thresholds
+                profile = result['profile']
+                alerts = []
+                
+                if profile['completeness_score'] < self.quality_thresholds['completeness']:
+                    alerts.append(f"Completeness below threshold: {profile['completeness_score']:.2f}")
+                
+                if profile['uniqueness_score'] < self.quality_thresholds['uniqueness']:
+                    alerts.append(f"Uniqueness below threshold: {profile['uniqueness_score']:.2f}")
+                
+                if profile['quality_score'] < self.quality_thresholds['overall_quality']:
+                    alerts.append(f"Overall quality below threshold: {profile['quality_score']:.2f}")
+                
+                if alerts:
+                    self.logger.warning(f"Quality alerts for {asset_id}: {alerts}")
+                
+                # Clear buffer
+                buffer = []
+                
+                yield result
+
+# Example streaming monitor
+def example_streaming_monitor():
+    """Example of real-time quality monitoring"""
+    
+    engine = DataObservabilityEngine()
+    monitor = RealTimeQualityMonitor(engine)
+    
+    # Simulate data stream
+    def generate_stream():
+        for i in range(5000):
+            yield {
+                'id': i,
+                'value': np.random.normal(100, 15),
+                'category': np.random.choice(['A', 'B', 'C']),
+                'timestamp': datetime.now() - timedelta(seconds=i),
+                'quality_flag': np.random.choice([True, False], p=[0.95, 0.05])
+            }
+    
+    # Monitor the stream
+    for result in monitor.monitor_stream(generate_stream(), 'streaming_data', window_size=1000):
+        print(f"Processed batch: {len(result['anomalies'])} anomalies detected")
+        if result['anomalies']:
+            break  # Stop on first anomaly for demo
+
+# example_streaming_monitor()
+```
+
+## Best Practices
+
+### Data Observability Implementation
+
+1. **Comprehensive Coverage**
+   - Monitor all critical data assets
+   - Track quality, volume, and freshness
+   - Implement schema change detection
+   - Monitor data lineage and dependencies
+
+2. **Proactive Anomaly Detection**
+   - Use statistical methods for anomaly detection
+   - Implement machine learning-based detection
+   - Set appropriate sensitivity thresholds
+   - Provide actionable alerts
+
+3. **Root Cause Analysis**
+   - Track data lineage for impact analysis
+   - Correlate anomalies across assets
+   - Provide debugging information
+   - Enable quick incident response
+
+4. **Scalable Architecture**
+   - Design for high-volume data processing
+   - Implement efficient storage and retrieval
+   - Support real-time and batch monitoring
+   - Enable horizontal scaling
+
+## Summary
+
+Data Observability provides:
+
+- **Comprehensive Visibility** - Complete view of data health and quality
+- **Proactive Detection** - Early identification of data issues
+- **Root Cause Analysis** - Understanding of data problems and impacts
+- **Automated Monitoring** - Continuous observation of data assets
+
+Key components:
+- Data profiling and quality assessment
+- Anomaly detection and alerting
+- Health status tracking and reporting
+- Real-time and batch monitoring capabilities
+
+---
+
+**Next**: Learn about [Alerting and Incident Response](/chapters/monitoring-observability/alerting-incident-response) for comprehensive incident management.

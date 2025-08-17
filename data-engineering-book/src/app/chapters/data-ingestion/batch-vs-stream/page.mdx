@@ -1,0 +1,484 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# Batch vs Stream Processing
+
+Data ingestion can be performed using two fundamental approaches: batch processing and stream processing. Understanding when to use each approach is crucial for building effective data pipelines.
+
+## Processing Paradigms Comparison
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "Batch Processing"
+        A[Data Sources] --> B[Collect Data]
+        B --> C[Store in Batches]
+        C --> D[Process Periodically]
+        D --> E[Output Results]
+    end
+    
+    subgraph "Stream Processing"
+        F[Data Sources] --> G[Real-time Ingestion]
+        G --> H[Process Immediately]
+        H --> I[Continuous Output]
+    end
+    
+    subgraph "Hybrid Approach"
+        J[Lambda Architecture]
+        K[Kappa Architecture]
+    end
+    
+    style A fill:#e3f2fd
+    style F fill:#e8f5e8
+    style J fill:#fff3e0
+    style K fill:#f3e5f5
+`} />
+
+## Batch Processing
+
+Batch processing involves collecting data over time and processing it in discrete chunks at scheduled intervals.
+
+### Batch Processing Implementation
+
+```python
+# Batch processing with Apache Airflow
+from datetime import datetime, timedelta
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator
+import pandas as pd
+import psycopg2
+from sqlalchemy import create_engine
+
+class BatchDataProcessor:
+    def __init__(self, config: dict):
+        self.config = config
+        self.engine = create_engine(config['database_url'])
+    
+    def extract_from_source(self, source_config: dict, extraction_date: str):
+        """Extract data from various sources"""
+        
+        if source_config['type'] == 'database':
+            query = f"""
+                SELECT * FROM {source_config['table']}
+                WHERE {source_config['date_column']} >= '{extraction_date}'
+                AND {source_config['date_column']} < '{extraction_date}'::date + interval '1 day'
+            """
+            return pd.read_sql(query, self.engine)
+        
+        elif source_config['type'] == 'api':
+            import requests
+            response = requests.get(
+                source_config['url'],
+                params={'date': extraction_date}
+            )
+            return pd.DataFrame(response.json())
+    
+    def transform_data(self, df: pd.DataFrame, transformations: list):
+        """Apply data transformations"""
+        
+        for transform in transformations:
+            if transform['type'] == 'clean':
+                # Remove duplicates
+                df = df.drop_duplicates()
+                
+                # Handle missing values
+                df = df.fillna(transform.get('fill_value', 0))
+            
+            elif transform['type'] == 'aggregate':
+                df = df.groupby(transform['group_by']).agg(
+                    transform['aggregations']
+                ).reset_index()
+        
+        return df
+    
+    def load_to_destination(self, df: pd.DataFrame, destination_config: dict):
+        """Load data to destination"""
+        
+        if destination_config['type'] == 'database':
+            df.to_sql(
+                destination_config['table'],
+                self.engine,
+                if_exists=destination_config.get('if_exists', 'append'),
+                index=False
+            )
+
+# Airflow DAG for batch processing
+default_args = {
+    'owner': 'data-engineering',
+    'depends_on_past': False,
+    'start_date': datetime(2024, 1, 1),
+    'retries': 2,
+    'retry_delay': timedelta(minutes=5)
+}
+
+dag = DAG(
+    'batch_data_processing',
+    default_args=default_args,
+    description='Daily batch data processing pipeline',
+    schedule_interval='0 2 * * *',  # Run daily at 2 AM
+    catchup=False
+)
+
+def extract_task(**context):
+    processor = BatchDataProcessor(config)
+    extraction_date = context['ds']
+    
+    source = {
+        'type': 'database',
+        'table': 'orders',
+        'date_column': 'created_at'
+    }
+    
+    df = processor.extract_from_source(source, extraction_date)
+    return df.to_dict('records')
+
+def transform_task(**context):
+    processor = BatchDataProcessor(config)
+    
+    data = context['task_instance'].xcom_pull(task_ids='extract_data')
+    df = pd.DataFrame(data)
+    
+    transformations = [
+        {'type': 'clean', 'fill_value': 0},
+        {
+            'type': 'aggregate',
+            'group_by': ['customer_id'],
+            'aggregations': {'amount': 'sum', 'quantity': 'sum'}
+        }
+    ]
+    
+    transformed_df = processor.transform_data(df, transformations)
+    return transformed_df.to_dict('records')
+
+def load_task(**context):
+    processor = BatchDataProcessor(config)
+    
+    data = context['task_instance'].xcom_pull(task_ids='transform_data')
+    df = pd.DataFrame(data)
+    
+    destination = {
+        'type': 'database',
+        'table': 'daily_aggregates',
+        'if_exists': 'replace'
+    }
+    
+    processor.load_to_destination(df, destination)
+
+# Define tasks
+extract_data = PythonOperator(
+    task_id='extract_data',
+    python_callable=extract_task,
+    dag=dag
+)
+
+transform_data = PythonOperator(
+    task_id='transform_data',
+    python_callable=transform_task,
+    dag=dag
+)
+
+load_data = PythonOperator(
+    task_id='load_data',
+    python_callable=load_task,
+    dag=dag
+)
+
+# Set dependencies
+extract_data >> transform_data >> load_data
+```
+
+## Stream Processing
+
+Stream processing handles data in real-time as it arrives, enabling immediate insights and actions.
+
+### Stream Processing with Apache Kafka
+
+```python
+# Stream processing with Kafka and Python
+from kafka import KafkaProducer, KafkaConsumer
+import json
+from datetime import datetime
+import pandas as pd
+import threading
+import time
+
+class StreamProcessor:
+    def __init__(self, kafka_config: dict):
+        self.kafka_config = kafka_config
+        self.producer = KafkaProducer(
+            bootstrap_servers=kafka_config['bootstrap_servers'],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        
+        self.consumer = KafkaConsumer(
+            bootstrap_servers=kafka_config['bootstrap_servers'],
+            value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+        )
+    
+    def produce_events(self, topic: str, events: list):
+        """Produce events to Kafka topic"""
+        
+        for event in events:
+            self.producer.send(topic, event)
+        
+        self.producer.flush()
+    
+    def consume_and_process(self, topic: str, processor_func):
+        """Consume events and process them in real-time"""
+        
+        self.consumer.subscribe([topic])
+        
+        for message in self.consumer:
+            event = message.value
+            
+            try:
+                # Process the event
+                result = processor_func(event)
+                
+                # Send result to output topic
+                if result:
+                    self.producer.send(f"{topic}_processed", result)
+                    
+            except Exception as e:
+                print(f"Error processing event: {e}")
+                # Send to dead letter queue
+                self.producer.send(f"{topic}_errors", {
+                    'original_event': event,
+                    'error': str(e),
+                    'timestamp': datetime.now().isoformat()
+                })
+    
+    def real_time_aggregation(self, topic: str, window_size_seconds: int = 60):
+        """Perform real-time aggregations with sliding windows"""
+        
+        self.consumer.subscribe([topic])
+        
+        window_data = []
+        window_start = time.time()
+        
+        for message in self.consumer:
+            event = message.value
+            current_time = time.time()
+            
+            # Add event to current window
+            window_data.append(event)
+            
+            # Check if window is complete
+            if current_time - window_start >= window_size_seconds:
+                # Process window
+                df = pd.DataFrame(window_data)
+                
+                if not df.empty:
+                    # Calculate aggregations
+                    aggregation = {
+                        'window_start': datetime.fromtimestamp(window_start).isoformat(),
+                        'window_end': datetime.fromtimestamp(current_time).isoformat(),
+                        'event_count': len(df),
+                        'unique_users': df['user_id'].nunique() if 'user_id' in df.columns else 0,
+                        'total_value': df['value'].sum() if 'value' in df.columns else 0,
+                        'avg_value': df['value'].mean() if 'value' in df.columns else 0
+                    }
+                    
+                    # Send aggregation result
+                    self.producer.send(f"{topic}_aggregated", aggregation)
+                
+                # Reset window
+                window_data = []
+                window_start = current_time
+    
+    def fraud_detection(self, event: dict) -> dict:
+        """Real-time fraud detection"""
+        
+        # Simple fraud detection logic
+        if event.get('event_type') == 'purchase':
+            amount = event.get('amount', 0)
+            user_id = event.get('user_id')
+            
+            # Check for high-value transactions
+            if amount > 10000:
+                return {
+                    'alert_type': 'high_value_transaction',
+                    'user_id': user_id,
+                    'amount': amount,
+                    'timestamp': datetime.now().isoformat(),
+                    'risk_score': 0.9
+                }
+            
+            # Check for rapid transactions (simplified)
+            # In practice, you'd maintain state about recent transactions
+            
+        return None
+
+# Usage example
+kafka_config = {
+    'bootstrap_servers': ['localhost:9092']
+}
+
+stream_processor = StreamProcessor(kafka_config)
+
+# Sample events
+events = [
+    {
+        'user_id': 'user_123',
+        'event_type': 'purchase',
+        'amount': 99.99,
+        'timestamp': datetime.now().isoformat()
+    },
+    {
+        'user_id': 'user_456',
+        'event_type': 'page_view',
+        'page': '/products',
+        'timestamp': datetime.now().isoformat()
+    }
+]
+
+# Produce events
+stream_processor.produce_events('user_events', events)
+
+# Start real-time processing in separate threads
+fraud_thread = threading.Thread(
+    target=stream_processor.consume_and_process,
+    args=('user_events', stream_processor.fraud_detection)
+)
+
+aggregation_thread = threading.Thread(
+    target=stream_processor.real_time_aggregation,
+    args=('user_events', 60)
+)
+
+fraud_thread.start()
+aggregation_thread.start()
+```
+
+## Choosing Between Batch and Stream
+
+### Decision Matrix
+
+| Factor | Batch Processing | Stream Processing |
+|--------|------------------|-------------------|
+| **Latency** | High (minutes to hours) | Low (milliseconds to seconds) |
+| **Throughput** | Very High | High |
+| **Complexity** | Lower | Higher |
+| **Cost** | Lower | Higher |
+| **Use Cases** | Reports, ETL, ML training | Real-time alerts, fraud detection |
+| **Data Consistency** | Strong | Eventually consistent |
+| **Resource Usage** | Periodic spikes | Continuous |
+
+### Implementation Guidelines
+
+```python
+# Decision framework for batch vs stream processing
+class ProcessingDecisionFramework:
+    def __init__(self):
+        self.criteria = {
+            'latency_requirement': {
+                'real_time': 'stream',
+                'near_real_time': 'stream', 
+                'periodic': 'batch'
+            },
+            'data_volume': {
+                'high': 'batch',
+                'medium': 'hybrid',
+                'low': 'stream'
+            },
+            'complexity': {
+                'simple': 'batch',
+                'complex': 'stream'
+            },
+            'cost_sensitivity': {
+                'high': 'batch',
+                'medium': 'hybrid',
+                'low': 'stream'
+            }
+        }
+    
+    def recommend_approach(self, requirements: dict) -> str:
+        scores = {'batch': 0, 'stream': 0, 'hybrid': 0}
+        
+        for criterion, value in requirements.items():
+            if criterion in self.criteria:
+                recommendation = self.criteria[criterion].get(value, 'hybrid')
+                scores[recommendation] += 1
+        
+        return max(scores, key=scores.get)
+
+# Example usage
+decision_framework = ProcessingDecisionFramework()
+
+requirements = {
+    'latency_requirement': 'near_real_time',
+    'data_volume': 'high',
+    'complexity': 'complex',
+    'cost_sensitivity': 'medium'
+}
+
+recommendation = decision_framework.recommend_approach(requirements)
+print(f"Recommended approach: {recommendation}")
+```
+
+## Hybrid Architectures
+
+### Lambda Architecture
+
+```python
+# Lambda architecture implementation
+class LambdaArchitecture:
+    def __init__(self, batch_processor, stream_processor):
+        self.batch_processor = batch_processor
+        self.stream_processor = stream_processor
+    
+    def process_data(self, data):
+        # Batch layer - comprehensive, accurate processing
+        batch_results = self.batch_processor.process(data)
+        
+        # Speed layer - real-time, approximate processing
+        stream_results = self.stream_processor.process(data)
+        
+        # Serving layer - merge results
+        return self.merge_results(batch_results, stream_results)
+    
+    def merge_results(self, batch_results, stream_results):
+        # Prioritize batch results for accuracy
+        # Use stream results for recent data
+        merged = batch_results.copy()
+        
+        # Add recent stream results not in batch
+        for key, value in stream_results.items():
+            if key not in merged or self.is_more_recent(value, merged[key]):
+                merged[key] = value
+        
+        return merged
+    
+    def is_more_recent(self, stream_value, batch_value):
+        # Compare timestamps to determine recency
+        stream_time = stream_value.get('timestamp')
+        batch_time = batch_value.get('timestamp')
+        
+        return stream_time > batch_time if stream_time and batch_time else True
+```
+
+## Best Practices
+
+### Batch Processing Best Practices
+- **Incremental processing** - Process only new/changed data
+- **Idempotent operations** - Ensure reprocessing produces same results
+- **Error handling** - Implement retry logic and dead letter queues
+- **Monitoring** - Track processing times, success rates, and data quality
+
+### Stream Processing Best Practices
+- **Handle late data** - Use watermarks and allowed lateness
+- **Manage state** - Use appropriate state backends and cleanup
+- **Ensure exactly-once processing** - Implement proper checkpointing
+- **Monitor lag** - Track processing lag and throughput
+
+## Summary
+
+Choosing between batch and stream processing depends on your specific requirements:
+
+- **Use batch processing** for high-volume data, complex transformations, and when latency is not critical
+- **Use stream processing** for real-time requirements, fraud detection, and immediate insights
+- **Consider hybrid approaches** like Lambda or Kappa architecture for comprehensive solutions
+
+Both approaches have their place in modern data engineering, and many organizations use both depending on the use case.
+
+---
+
+**Next**: Learn about [ETL vs ELT](/chapters/data-ingestion/etl-vs-elt) to understand different data transformation strategies.

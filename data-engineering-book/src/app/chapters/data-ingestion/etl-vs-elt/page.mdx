@@ -1,0 +1,439 @@
+import {MermaidDiagram} from '@/components/MermaidDiagram';
+
+# ETL vs ELT
+
+ETL (Extract, Transform, Load) and ELT (Extract, Load, Transform) are two fundamental approaches to data integration. The key difference lies in where and when data transformation occurs, which has significant implications for performance, scalability, and architecture design.
+
+## ETL vs ELT Architecture
+
+<MermaidDiagram chart={`
+graph TB
+    subgraph "ETL Process"
+        ETL1[Data Sources] --> ETL2[Extract]
+        ETL2 --> ETL3[Transform<br/>Processing Engine]
+        ETL3 --> ETL4[Load<br/>Target System]
+    end
+    
+    subgraph "ELT Process"
+        ELT1[Data Sources] --> ELT2[Extract]
+        ELT2 --> ELT3[Load<br/>Data Lake/Warehouse]
+        ELT3 --> ELT4[Transform<br/>In Target System]
+    end
+    
+    subgraph "Key Differences"
+        KD1[ETL: Transform Before Load]
+        KD2[ELT: Transform After Load]
+        KD3[ETL: Limited by Processing Power]
+        KD4[ELT: Leverages Target System Power]
+    end
+    
+    style ETL3 fill:#ffeb3b
+    style ELT4 fill:#4caf50
+    style KD1 fill:#e3f2fd
+    style KD2 fill:#e8f5e8
+`} />
+
+## ETL Implementation
+
+### Traditional ETL Pipeline
+
+This ETL implementation demonstrates the classic approach where data is extracted from a source system, transformed in memory using pandas, and then loaded into the target system. This pattern is ideal when you need to clean and validate data before storage, or when working with smaller datasets that fit in memory.
+
+```python
+# ETL implementation with data transformation before loading
+import pandas as pd
+import psycopg2
+from sqlalchemy import create_engine
+from datetime import datetime
+import logging
+
+class ETLPipeline:
+    """
+    Traditional ETL pipeline that transforms data before loading
+    Best for: Data validation, small to medium datasets, complex transformations
+    """
+    def __init__(self, source_config: Dict, target_config: Dict):
+        # Create database connections for source and target systems
+        self.source_engine = create_engine(source_config['connection_string'])
+        self.target_engine = create_engine(target_config['connection_string'])
+        self.logger = logging.getLogger(__name__)
+    
+    def extract_data(self, query: str) -> pd.DataFrame:
+        """
+        Extract data from source system
+        Adds extraction timestamp for data lineage tracking
+        """
+        try:
+            df = pd.read_sql(query, self.source_engine)
+            df['_extracted_at'] = datetime.now()  # Track when data was extracted
+            self.logger.info(f"Extracted {len(df)} records")
+            return df
+        except Exception as e:
+            self.logger.error(f"Extraction failed: {e}")
+            raise
+    
+    def transform_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Transform data before loading - this is the key ETL characteristic
+        Performs data cleaning, enrichment, and business logic application
+        """
+        try:
+            # Data cleaning - remove duplicates and invalid records
+            df = df.drop_duplicates()
+            df = df.dropna(subset=['customer_id', 'order_id'])
+            
+            # Data enrichment - calculate derived fields
+            df['order_total'] = df['quantity'] * df['unit_price']
+            df['order_month'] = pd.to_datetime(df['order_date']).dt.month
+            
+            # Business logic - categorize orders by value
+            conditions = [
+                df['order_total'] >= 1000,  # Premium orders
+                df['order_total'] >= 500,   # Standard orders
+                df['order_total'] >= 100    # Basic orders
+            ]
+            choices = ['Premium', 'Gold', 'Silver']
+            df['customer_tier'] = pd.np.select(conditions, choices, default='Bronze')
+            
+            df['_transformed_at'] = datetime.now()
+            self.logger.info(f"Transformed {len(df)} records")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Transformation failed: {e}")
+            raise
+    
+    def load_data(self, df: pd.DataFrame, table_name: str) -> bool:
+        """Load transformed data to target system"""
+        try:
+            df.to_sql(table_name, self.target_engine, if_exists='append', index=False)
+            self.logger.info(f"Loaded {len(df)} records to {table_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Loading failed: {e}")
+            return False
+    
+    def run_pipeline(self, extract_query: str, target_table: str) -> bool:
+        """Run complete ETL pipeline"""
+        try:
+            # Extract
+            raw_data = self.extract_data(extract_query)
+            
+            # Transform
+            transformed_data = self.transform_data(raw_data)
+            
+            # Load
+            success = self.load_data(transformed_data, target_table)
+            
+            if success:
+                self.logger.info("ETL pipeline completed successfully")
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"ETL pipeline failed: {e}")
+            return False
+
+# Usage example
+source_config = {'connection_string': 'postgresql://user:pass@source:5432/db'}
+target_config = {'connection_string': 'postgresql://user:pass@warehouse:5432/analytics'}
+
+etl = ETLPipeline(source_config, target_config)
+
+extract_query = """
+    SELECT customer_id, order_id, product_id, quantity, unit_price, order_date
+    FROM orders 
+    WHERE order_date >= CURRENT_DATE - INTERVAL '1 day'
+"""
+
+success = etl.run_pipeline(extract_query, 'processed_orders')
+```
+
+## ELT Implementation
+
+### Modern ELT Pipeline
+
+```python
+# ELT implementation with transformation in target system
+import boto3
+import pandas as pd
+from sqlalchemy import create_engine, text
+from datetime import datetime
+import logging
+
+class ELTDataPipeline:
+    def __init__(self, data_lake_config: Dict, warehouse_config: Dict):
+        self.s3_client = boto3.client('s3', **data_lake_config.get('aws_config', {}))
+        self.warehouse_engine = create_engine(warehouse_config['connection_string'])
+        self.bucket = data_lake_config['bucket']
+        self.logger = logging.getLogger(__name__)
+    
+    def extract_and_load_raw(self, source_query: str, table_name: str) -> bool:
+        """Extract data and load to data lake without transformation"""
+        try:
+            # Extract data
+            source_engine = create_engine('postgresql://user:pass@source:5432/db')
+            df = pd.read_sql(source_query, source_engine)
+            
+            # Add extraction metadata
+            df['_extracted_at'] = datetime.now()
+            df['_source_system'] = 'orders_db'
+            
+            # Load to data lake (S3) as raw data
+            s3_key = f"raw-zone/{table_name}/year={datetime.now().year}/month={datetime.now().month}/data.parquet"
+            
+            parquet_buffer = df.to_parquet(index=False)
+            self.s3_client.put_object(
+                Bucket=self.bucket,
+                Key=s3_key,
+                Body=parquet_buffer
+            )
+            
+            self.logger.info(f"Loaded {len(df)} raw records to {s3_key}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Extract and load failed: {e}")
+            return False
+    
+    def create_external_table(self, table_name: str, s3_path: str) -> bool:
+        """Create external table pointing to data lake"""
+        try:
+            create_table_sql = f"""
+            CREATE EXTERNAL TABLE IF NOT EXISTS {table_name}_raw (
+                customer_id VARCHAR(50),
+                order_id VARCHAR(50),
+                product_id VARCHAR(50),
+                quantity INTEGER,
+                unit_price DECIMAL(10,2),
+                order_date TIMESTAMP,
+                _extracted_at TIMESTAMP,
+                _source_system VARCHAR(50)
+            )
+            STORED AS PARQUET
+            LOCATION 's3://{self.bucket}/{s3_path}'
+            """
+            
+            with self.warehouse_engine.connect() as conn:
+                conn.execute(text(create_table_sql))
+                conn.commit()
+            
+            self.logger.info(f"External table created: {table_name}_raw")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"External table creation failed: {e}")
+            return False
+    
+    def transform_in_warehouse(self, transformations: Dict[str, str]) -> bool:
+        """Perform transformations within the data warehouse"""
+        try:
+            with self.warehouse_engine.connect() as conn:
+                for table_name, sql_query in transformations.items():
+                    conn.execute(text(sql_query))
+                    self.logger.info(f"Transformation completed: {table_name}")
+                
+                conn.commit()
+            
+            self.logger.info("All transformations completed in warehouse")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Warehouse transformation failed: {e}")
+            return False
+    
+    def run_elt_pipeline(self, source_query: str, table_name: str, 
+                        transformations: Dict[str, str]) -> bool:
+        """Run complete ELT pipeline"""
+        try:
+            # Extract and Load raw data
+            if not self.extract_and_load_raw(source_query, table_name):
+                return False
+            
+            # Create external table
+            s3_path = f"raw-zone/{table_name}/"
+            if not self.create_external_table(table_name, s3_path):
+                return False
+            
+            # Transform in warehouse
+            if not self.transform_in_warehouse(transformations):
+                return False
+            
+            self.logger.info("ELT pipeline completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"ELT pipeline failed: {e}")
+            return False
+
+# ELT transformation SQL examples
+transformations = {
+    'customer_summary': """
+        CREATE OR REPLACE TABLE customer_summary AS
+        SELECT 
+            customer_id,
+            COUNT(*) as total_orders,
+            SUM(quantity * unit_price) as total_spent,
+            AVG(quantity * unit_price) as avg_order_value,
+            MAX(order_date) as last_order_date,
+            CASE 
+                WHEN SUM(quantity * unit_price) >= 1000 THEN 'Premium'
+                WHEN SUM(quantity * unit_price) >= 500 THEN 'Gold'
+                ELSE 'Standard'
+            END as customer_tier
+        FROM orders_raw
+        GROUP BY customer_id
+    """,
+    
+    'product_performance': """
+        CREATE OR REPLACE TABLE product_performance AS
+        SELECT 
+            product_id,
+            COUNT(*) as total_orders,
+            SUM(quantity) as total_quantity,
+            SUM(quantity * unit_price) as total_revenue,
+            AVG(quantity * unit_price) as avg_order_value
+        FROM orders_raw
+        GROUP BY product_id
+        ORDER BY total_revenue DESC
+    """
+}
+
+# Usage example
+data_lake_config = {
+    'bucket': 'my-data-lake',
+    'aws_config': {'region_name': 'us-west-2'}
+}
+
+warehouse_config = {
+    'connection_string': 'postgresql://user:pass@warehouse:5432/analytics'
+}
+
+elt = ELTDataPipeline(data_lake_config, warehouse_config)
+
+source_query = """
+    SELECT customer_id, order_id, product_id, quantity, unit_price, order_date
+    FROM orders 
+    WHERE order_date >= CURRENT_DATE - INTERVAL '1 day'
+"""
+
+success = elt.run_elt_pipeline(source_query, 'orders', transformations)
+```
+
+## ETL vs ELT Comparison
+
+| Aspect | ETL | ELT |
+|--------|-----|-----|
+| **Transformation Location** | External processing engine | Target data warehouse |
+| **Data Storage** | Processed data only | Raw + processed data |
+| **Scalability** | Limited by processing power | Leverages warehouse compute |
+| **Flexibility** | Less flexible, predefined schema | More flexible, schema-on-read |
+| **Time to Insights** | Longer (transform first) | Faster (load first) |
+| **Storage Costs** | Lower (no raw data) | Higher (raw + processed) |
+| **Compute Costs** | Dedicated processing resources | Uses warehouse resources |
+| **Data Lineage** | Complex to track | Easier to track |
+| **Error Recovery** | Requires re-processing | Can re-transform from raw |
+
+## When to Use ETL
+
+### ETL is Better When:
+- **Limited target storage** - Storage costs are high
+- **Complex transformations** - Heavy processing required
+- **Data privacy** - Sensitive data must be cleaned before storage
+- **Legacy systems** - Traditional data warehouse limitations
+- **Predictable workloads** - Well-defined transformation requirements
+
+### ETL Use Cases:
+- Financial data processing with strict validation
+- Healthcare data with privacy requirements
+- Legacy data warehouse migrations
+- Real-time streaming with immediate transformation needs
+
+## When to Use ELT
+
+### ELT is Better When:
+- **Cloud data warehouses** - Powerful compute available (Snowflake, BigQuery, Redshift)
+- **Large data volumes** - Massive datasets that benefit from parallel processing
+- **Flexible analytics** - Multiple transformation requirements
+- **Data exploration** - Need to analyze raw data
+- **Rapid development** - Faster time to insights
+
+### ELT Use Cases:
+- Big data analytics platforms
+- Data science and machine learning workflows
+- Cloud-native applications
+- Self-service analytics platforms
+
+## Hybrid Approaches
+
+### ETL + ELT Combination
+
+```python
+# Hybrid approach combining ETL and ELT
+class HybridDataPipeline:
+    def __init__(self, etl_pipeline: ETLPipeline, elt_pipeline: ELTDataPipeline):
+        self.etl = etl_pipeline
+        self.elt = elt_pipeline
+    
+    def run_hybrid_pipeline(self, source_query: str) -> bool:
+        """Run hybrid pipeline with both ETL and ELT"""
+        try:
+            # ELT: Load raw data for exploration
+            self.elt.extract_and_load_raw(source_query, 'raw_orders')
+            
+            # ETL: Process critical business data
+            processed_data = self.etl.extract_data(source_query)
+            critical_transforms = self.etl.transform_data(processed_data)
+            self.etl.load_data(critical_transforms, 'business_critical_orders')
+            
+            # ELT: Additional transformations in warehouse
+            warehouse_transforms = {
+                'exploratory_analysis': """
+                    CREATE TABLE exploratory_orders AS
+                    SELECT * FROM raw_orders_raw
+                    WHERE order_date >= CURRENT_DATE - INTERVAL '7 days'
+                """
+            }
+            self.elt.transform_in_warehouse(warehouse_transforms)
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Hybrid pipeline failed: {e}")
+            return False
+
+# Usage
+hybrid = HybridDataPipeline(etl, elt)
+hybrid.run_hybrid_pipeline(source_query)
+```
+
+## Best Practices
+
+### ETL Best Practices
+- **Incremental processing** - Process only changed data
+- **Error handling** - Robust error handling and recovery
+- **Data validation** - Validate data quality during transformation
+- **Monitoring** - Monitor pipeline performance and failures
+- **Testing** - Test transformations thoroughly
+
+### ELT Best Practices
+- **Data partitioning** - Partition data for better performance
+- **Compute optimization** - Use appropriate warehouse sizing
+- **Cost management** - Monitor and optimize compute costs
+- **Data governance** - Maintain data lineage and quality
+- **Security** - Implement proper access controls
+
+## Summary
+
+The choice between ETL and ELT depends on:
+
+- **Infrastructure** - Cloud vs on-premise capabilities
+- **Data volume** - Size and complexity of data
+- **Use cases** - Analytics requirements and flexibility needs
+- **Resources** - Available compute and storage resources
+- **Timeline** - Speed requirements for data availability
+
+Modern data platforms often use hybrid approaches, combining both ETL and ELT patterns based on specific use case requirements.
+
+---
+
+**Next**: Learn about [Data Integration Patterns](/chapters/data-ingestion/integration-patterns) for connecting diverse data sources.
