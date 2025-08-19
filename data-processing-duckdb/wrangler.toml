@@ -1,0 +1,8 @@
+# Human-friendly name (not required for Pages, but useful)
+name = "duckdb-playground"
+
+# Cloudflare runtime baseline
+compatibility_date = "2024-05-01"
+
+# Cloudflare Pages: where the static site is built to
+pages_build_output_dir = "./dist"

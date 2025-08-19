@@ -25,31 +25,29 @@ beforeEach(() => {
 // Mock the DB layer used by useRunner
 vi.mock('@/lib/duckdb', () => {
   return {
-    getDB: async () => ({
-      connect: async () => ({
-        query: async (sql: string) => {
-          const s = sql.trim().toUpperCase();
-          // useRunner's LOAD SAMPLE calls loadSample(conn) which issues CREATE TABLE ... AS SELECT * FROM read_csv(...)
-          if (s.startsWith('CREATE OR REPLACE TABLE PEOPLE AS SELECT * FROM READ_CSV(')) {
-            peopleRows = [
-              ['Aarav', 28, 'Bengaluru'],
-              ['Diya', 22, 'Delhi'],
-              ['Kabir', 35, 'Mumbai'],
-              ['Isha', 31, 'Bengaluru'],
-              ['Vihaan', 27, 'Pune'],
-            ];
-            return makeResult(['ok'], []);
-          }
-          if (s.startsWith('SELECT') && s.includes('FROM PEOPLE')) {
-            const cols = ['name', 'age', 'city'];
-            const limited = peopleRows.slice(0, 5);
-            return makeResult(cols, limited as any);
-          }
-          // Default empty result
-          return makeResult(['dummy'], []);
-        },
-        close: async () => {},
-      }),
+    getConn: async () => ({
+      query: async (sql: string) => {
+        const s = sql.trim().toUpperCase();
+        // useRunner's LOAD SAMPLE calls loadSample(conn) which issues CREATE TABLE ... AS SELECT * FROM read_csv(...)
+        if (s.startsWith('CREATE OR REPLACE TABLE PEOPLE AS SELECT * FROM READ_CSV(')) {
+          peopleRows = [
+            ['Aarav', 28, 'Bengaluru'],
+            ['Diya', 22, 'Delhi'],
+            ['Kabir', 35, 'Mumbai'],
+            ['Isha', 31, 'Bengaluru'],
+            ['Vihaan', 27, 'Pune'],
+          ];
+          return makeResult(['ok'], []);
+        }
+        if (s.startsWith('SELECT') && s.includes('FROM PEOPLE')) {
+          const cols = ['name', 'age', 'city'];
+          const limited = peopleRows.slice(0, 5);
+          return makeResult(cols, limited as any);
+        }
+        // Default empty result
+        return makeResult(['dummy'], []);
+      },
+      close: async () => {},
     }),
   };
 });

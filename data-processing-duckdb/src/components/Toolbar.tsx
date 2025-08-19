@@ -1,11 +1,14 @@
 import React from 'react';
+import { downloadLogs, clearLogs } from '@/lib/logService';
+import Dropdown from '@/components/Dropdown';
 
 interface ToolbarProps {
   title: string;
   running: boolean;
   ready: boolean;
-  notebookMode: boolean;
-  setNotebookMode: (v: (prev: boolean) => boolean) => void;
+  // Debug toggle
+  debugLogs: boolean;
+  setDebugLogs: (v: (prev: boolean) => boolean) => void;
 
   // Snippets
   snippetsOpen: boolean;
@@ -26,19 +29,19 @@ interface ToolbarProps {
   loadSampleAction: () => void;
   parquetDemo: () => void;
   resetDb: () => void;
+  resetSession: () => void;
   runQualityReport: () => void;
-
-  // Single editor actions
-  canDownload: boolean;
-  onShare: () => void;
-  onSaveGist: () => void;
-  onCopySQL: () => void;
-  onDownloadCSV: () => void;
-  onRun: () => void;
 
   // Notebook
   onAddCell: () => void;
   onRunAll: () => void;
+  onExportWorkspace?: () => void;
+  onImportWorkspace?: (file: File) => void;
+
+  // Upload
+  onUploadFile?: (file: File) => void;
+  // Schema modal trigger
+  onOpenSchema?: () => void;
 
   // Refs for outside-click close behavior
   snippetsRef: React.RefObject<HTMLDivElement>;
@@ -48,116 +51,144 @@ interface ToolbarProps {
 
 export default function Toolbar(props: ToolbarProps) {
   const {
-    title, running, ready, notebookMode, setNotebookMode,
-    snippetsOpen, setSnippetsOpen, snippet, applySnippet,
-    datasetsOpen, setDatasetsOpen, dataset, loadDataset,
-    menuOpen, setMenuOpen, installHttpfs, loadSampleAction, parquetDemo, resetDb, runQualityReport,
-    canDownload, onShare, onSaveGist, onCopySQL, onDownloadCSV, onRun,
-    onAddCell, onRunAll,
-    snippetsRef, datasetsRef, menuRef,
+    title, running, ready,
+    debugLogs, setDebugLogs,
+    snippet, applySnippet,
+    dataset, loadDataset,
+    installHttpfs, loadSampleAction, parquetDemo, resetDb, resetSession, runQualityReport,
+    onRunAll,
+    onExportWorkspace,
+    onImportWorkspace,
+    onUploadFile,
+    onOpenSchema,
   } = props;
 
   return (
-    <div className="card vstack" style={{ gap: 8 }}>
-      <div className="hstack toolbar" style={{ justifyContent: 'space-between' }}>
-        <strong>{title} {running && <span className="spinner" style={{ marginLeft: 8 }} />}</strong>
-        <div className="hstack" style={{ gap: 8 }}>
-          {/* Snippets */}
-          <div className="dropdown" ref={snippetsRef}>
-            <button className="icon-btn" aria-label="Snippets" title="Snippets" onClick={() => setSnippetsOpen((s) => !s)} disabled={!ready}>
-              <span className="material-symbols-outlined">code</span>
+    <div className="bg-base-100 sticky top-0 border border-base-300 p-2 z-40">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <strong>{title}</strong>
+          {running && <span className="loading loading-spinner loading-xs" />}
+          <span className={`badge badge-sm ${ready ? 'badge-success' : 'badge-neutral'}`}>{ready ? 'Ready' : 'Init'}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {/* Upload */}
+          {onUploadFile && (
+            <label className="btn btn-ghost btn-sm btn-square" title="Upload file">
+              <input
+                type="file"
+                accept=".csv,.tsv,.parquet,.json,.ndjson,text/csv,application/json,application/x-ndjson,application/octet-stream"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files && e.target.files[0];
+                  if (f) { onUploadFile(f); e.currentTarget.value = '' as any; }
+                }}
+              />
+              <span className="material-symbols-outlined">upload_file</span>
+            </label>
+          )}
+
+          {/* Schema modal trigger */}
+          {onOpenSchema && (
+            <button className="btn btn-ghost btn-sm btn-square" title="View schema" onClick={onOpenSchema}>
+              <span className="material-symbols-outlined">schema</span>
             </button>
-            {snippetsOpen && (
-              <div className="menu" onMouseLeave={() => setSnippetsOpen(() => false)}>
-                <button onClick={() => { setSnippetsOpen(() => false); applySnippet('load_sample'); }}>
-                  {snippet === 'load_sample' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Load Sample
-                </button>
-                <button onClick={() => { setSnippetsOpen(() => false); applySnippet('quality_report'); }}>
-                  {snippet === 'quality_report' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Quality Report
-                </button>
-                <button onClick={() => { setSnippetsOpen(() => false); applySnippet('parquet_demo'); }}>
-                  {snippet === 'parquet_demo' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Parquet Demo
-                </button>
-                <button onClick={() => { setSnippetsOpen(() => false); applySnippet('aggregation'); }}>
-                  {snippet === 'aggregation' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Aggregation by city
-                </button>
-                <button onClick={() => { setSnippetsOpen(() => false); applySnippet('join_example'); }}>
-                  {snippet === 'join_example' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Join example
-                </button>
-              </div>
-            )}
-          </div>
+          )}
+          {/* Snippets */}
+          <Dropdown
+            alignEnd
+            triggerClassName="btn m-1 btn-ghost btn-square"
+            trigger={<span className="material-symbols-outlined">code</span>}
+            widthClassName="w-64"
+          >
+            <li><button onClick={() => { applySnippet('load_sample'); }}>{snippet === 'load_sample' && <span className="material-symbols-outlined mr-1">check</span>}Load Sample</button></li>
+            <li><button onClick={() => { applySnippet('quality_report'); }}>{snippet === 'quality_report' && <span className="material-symbols-outlined mr-1">check</span>}Quality Report</button></li>
+            <li><button onClick={() => { applySnippet('parquet_demo'); }}>{snippet === 'parquet_demo' && <span className="material-symbols-outlined mr-1">check</span>}Parquet Demo</button></li>
+            <li><button onClick={() => { applySnippet('aggregation'); }}>{snippet === 'aggregation' && <span className="material-symbols-outlined mr-1">check</span>}Aggregation by city</button></li>
+            <li><button onClick={() => { applySnippet('join_example'); }}>{snippet === 'join_example' && <span className="material-symbols-outlined mr-1">check</span>}Join example</button></li>
+          </Dropdown>
 
           {/* Datasets */}
-          <div className="dropdown" ref={datasetsRef}>
-            <button className="icon-btn" aria-label="Datasets" title="Datasets" onClick={() => setDatasetsOpen((s) => !s)} disabled={!ready}>
-              <span className="material-symbols-outlined">dataset</span>
-            </button>
-            {datasetsOpen && (
-              <div className="menu" onMouseLeave={() => setDatasetsOpen(() => false)}>
-                <button onClick={() => { setDatasetsOpen(() => false); loadDataset('people_local'); }}>
-                  {dataset === 'people_local' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} People (local CSV)
-                </button>
-                <button onClick={() => { setDatasetsOpen(() => false); loadDataset('tips_remote'); }}>
-                  {dataset === 'tips_remote' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} Tips (remote CSV)
-                </button>
-                <button onClick={() => { setDatasetsOpen(() => false); loadDataset('tpch_lineitem'); }}>
-                  {dataset === 'tpch_lineitem' && <span className="material-symbols-outlined" style={{marginRight:8}}>check</span>} TPCH Lineitem (Parquet)
-                </button>
-              </div>
-            )}
-          </div>
+          <Dropdown
+            alignEnd
+            triggerClassName="btn btn-ghost btn-sm btn-square"
+            trigger={<span className="material-symbols-outlined">dataset</span>}
+            widthClassName="w-72"
+          >
+            <li>
+              <label>
+                <input
+                  type="file"
+                  accept=".csv,.tsv,.parquet,.json,.ndjson,text/csv,application/json,application/x-ndjson,application/octet-stream"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files && e.target.files[0];
+                    if (f) {
+                      if (onUploadFile) onUploadFile(f);
+                      e.currentTarget.value = '' as any;
+                    }
+                  }}
+                />
+                <span className="btn btn-ghost btn-sm btn-square justify-start"><span className="material-symbols-outlined mr-2">upload_file</span>Upload file…</span>
+              </label>
+            </li>
+            <li><button onClick={() => { loadDataset('people_local'); }}>{dataset === 'people_local' && <span className="material-symbols-outlined mr-1">check</span>} People (local CSV)</button></li>
+            <li><button onClick={() => { loadDataset('tips_remote'); }}>{dataset === 'tips_remote' && <span className="material-symbols-outlined mr-1">check</span>} Tips (remote CSV)</button></li>
+            <li><button onClick={() => { loadDataset('tpch_lineitem'); }}>{dataset === 'tpch_lineitem' && <span className="material-symbols-outlined mr-1">check</span>} TPCH Lineitem (Parquet)</button></li>
+          </Dropdown>
 
           {/* Secondary actions */}
-          <div className="dropdown" ref={menuRef}>
-            <button className="icon-btn" aria-label="More actions" title="More actions" onClick={() => setMenuOpen((m) => !m)}>
-              <span className="material-symbols-outlined">more_vert</span>
-            </button>
-            {menuOpen && (
-              <div className="menu" onMouseLeave={() => setMenuOpen(() => false)}>
-                <button onClick={installHttpfs}><span className="material-symbols-outlined" style={{marginRight:8}}>cloud_download</span> Install httpfs</button>
-                <button onClick={loadSampleAction}><span className="material-symbols-outlined" style={{marginRight:8}}>download</span> Load Sample</button>
-                <button onClick={parquetDemo}><span className="material-symbols-outlined" style={{marginRight:8}}>table</span> Parquet demo</button>
-                <button onClick={resetDb}><span className="material-symbols-outlined" style={{marginRight:8}}>restart_alt</span> Reset</button>
-                <button onClick={runQualityReport}><span className="material-symbols-outlined" style={{marginRight:8}}>fact_check</span> Quality Report</button>
-              </div>
+          <Dropdown
+            alignEnd
+            triggerClassName="btn btn-ghost btn-sm btn-square"
+            trigger={<span className="material-symbols-outlined">more_vert</span>}
+            widthClassName="w-64"
+          >
+            <li><button onClick={installHttpfs}><span className="material-symbols-outlined mr-2">cloud_download</span>Install httpfs</button></li>
+            <li><button onClick={loadSampleAction}><span className="material-symbols-outlined mr-2">download</span>Load Sample</button></li>
+            <li><button onClick={parquetDemo}><span className="material-symbols-outlined mr-2">table</span>Parquet demo</button></li>
+            <li><button onClick={resetDb}><span className="material-symbols-outlined mr-2">restart_alt</span>Reset</button></li>
+            <li><button onClick={resetSession}><span className="material-symbols-outlined mr-2">restart_alt</span>Reset session</button></li>
+            <li><button onClick={runQualityReport}><span className="material-symbols-outlined mr-2">fact_check</span>Quality Report</button></li>
+            {onExportWorkspace && (
+              <li><button onClick={onExportWorkspace}><span className="material-symbols-outlined mr-2">ios_share</span>Export workspace</button></li>
             )}
-          </div>
-
-          {/* Single editor-only controls */}
-          {!notebookMode && (
-            <>
-              <button className="icon-btn" aria-label="Share link" title="Share link" onClick={onShare} disabled={!ready}>
-                <span className="material-symbols-outlined">link</span>
-              </button>
-              <button className="icon-btn" aria-label="Save as Gist" title="Save as Gist" onClick={onSaveGist} disabled={!ready}>
-                <span className="material-symbols-outlined">save</span>
-              </button>
-              <button className="icon-btn" aria-label="Copy SQL" title="Copy SQL" onClick={onCopySQL} disabled={!ready}>
-                <span className="material-symbols-outlined">content_copy</span>
-              </button>
-              <button className="icon-btn" aria-label="Download CSV" title="Download CSV" onClick={onDownloadCSV} disabled={!ready || !canDownload}>
-                <span className="material-symbols-outlined">download</span>
-              </button>
-              <button className="icon-btn" aria-label="Run" title="Run (Cmd/Ctrl+Enter)" onClick={onRun} disabled={!ready || running}>
-                <span className="material-symbols-outlined">play_arrow</span>
-              </button>
-            </>
-          )}
+            {onImportWorkspace && (
+              <li>
+                <label>
+                  <input
+                    type="file"
+                    accept="application/json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files && e.target.files[0];
+                      if (f) {
+                        onImportWorkspace(f);
+                        e.currentTarget.value = '' as any;
+                      }
+                    }}
+                  />
+                  <span className="btn btn-ghost btn-sm btn-square justify-start"><span className="material-symbols-outlined mr-2">upload</span>Import workspace…</span>
+                </label>
+              </li>
+            )}
+            <li><button onClick={() => downloadLogs()}><span className="material-symbols-outlined mr-2">download</span>Download logs</button></li>
+            <li><button onClick={() => clearLogs()}><span className="material-symbols-outlined mr-2">delete</span>Clear logs</button></li>
+          </Dropdown>
 
           {/* Notebook controls */}
-          {notebookMode && (
-            <>
-              <button className="icon-btn" aria-label="Add cell" title="Add cell" onClick={onAddCell}>
-                <span className="material-symbols-outlined">add</span>
-              </button>
-              <button className="icon-btn" aria-label="Run all" title="Run all" onClick={onRunAll} disabled={!ready}>
-                <span className="material-symbols-outlined">play_arrow</span>
-              </button>
-            </>
-          )}
-          <button className="icon-btn" aria-label="Toggle mode" title={notebookMode ? 'Switch to Single Editor' : 'Switch to Notebook'} onClick={() => setNotebookMode((v) => !v)}>
-            <span className="material-symbols-outlined">swap_horiz</span>
+            <button className="btn btn-ghost btn-sm btn-square" aria-label="Run all" title="Run all" onClick={onRunAll} disabled={!ready}>
+              <span className="material-symbols-outlined">play_arrow</span>
+            </button>
+
+          {/* Debug + Mode */}
+          <button
+            className={`btn btn-sm btn-square ${debugLogs ? 'btn-ghost' : 'btn-primary'}`}
+            aria-label="Debug logs"
+            title={debugLogs ? 'Disable debug logs' : 'Enable debug logs'}
+            onClick={() => setDebugLogs((v) => !v)}
+          >
+            <span className="material-symbols-outlined">bug_report</span>
           </button>
         </div>
       </div>

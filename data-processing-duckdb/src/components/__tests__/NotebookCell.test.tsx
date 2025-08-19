@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import NotebookCell, { NotebookCellData } from '@/components/NotebookCell';
 
@@ -17,13 +18,14 @@ vi.mock('@uiw/react-codemirror', () => {
   };
 });
 
-// Mock ResultsPanel to a simple div that renders message and columns length
+// Mock ResultsPanel to a simple div that renders message, columns length and collapsed flag
 vi.mock('@/components/ResultsPanel', () => {
   return {
     default: (props: any) => (
       <div>
         <div data-testid="message">{props.message}</div>
         <div data-testid="cols">{(props.columns || []).length}</div>
+        <div data-testid="collapsed">{String(!!props.collapsed)}</div>
       </div>
     ),
   };
@@ -32,6 +34,7 @@ vi.mock('@/components/ResultsPanel', () => {
 describe('NotebookCell', () => {
   const baseCell: NotebookCellData = {
     id: 'c1',
+    title: 'Cell 1',
     sql: 'select 1',
     columns: ['id'],
     rows: [{ id: 1 }],
@@ -51,6 +54,7 @@ describe('NotebookCell', () => {
       onFocus: vi.fn(),
       onChange: vi.fn(),
       onRun: vi.fn(),
+      onChangeTitle: vi.fn(),
       onAddBelow: vi.fn(),
       onMove: vi.fn(),
       onDelete: vi.fn(),
@@ -78,22 +82,47 @@ describe('NotebookCell', () => {
     expect(props.onChange).toHaveBeenCalledWith('c1', 'select 2');
   });
 
-  it('buttons call respective handlers', () => {
+  it('edits title and calls onChangeTitle', () => {
+    const { props } = renderCell();
+    const input = screen.getByLabelText('Cell title') as HTMLInputElement;
+    expect(input.value).toBe('Cell 1');
+    fireEvent.change(input, { target: { value: 'My Title' } });
+    expect(props.onChangeTitle).toHaveBeenCalledWith('c1', 'My Title');
+  });
+
+  it('buttons call respective handlers', async () => {
+    const user = userEvent.setup();
     const { props } = renderCell();
     // Run
-    fireEvent.click(screen.getByRole('button', { name: /Run cell/i }));
+    await user.click(screen.getByRole('button', { name: /Run cell/i }));
     expect(props.onRun).toHaveBeenCalledWith('c1');
     // Add below
-    fireEvent.click(screen.getByRole('button', { name: /Add cell below/i }));
+    await user.click(screen.getByRole('button', { name: /Add cell below/i }));
     expect(props.onAddBelow).toHaveBeenCalledWith('c1');
     // Move up is disabled
     const upBtn = screen.getByRole('button', { name: /Move up/i });
     expect((upBtn as HTMLButtonElement).disabled).toBe(true);
     // Move down
-    fireEvent.click(screen.getByRole('button', { name: /Move down/i }));
+    await user.click(screen.getByRole('button', { name: /Move down/i }));
     expect(props.onMove).toHaveBeenCalledWith('c1', 1);
     // Delete
-    fireEvent.click(screen.getByRole('button', { name: /Delete cell/i }));
+    await user.click(screen.getByRole('button', { name: /Delete cell/i }));
     expect(props.onDelete).toHaveBeenCalledWith('c1');
+  });
+
+  it('keyboard shortcut Ctrl+Shift+L collapses/expands cell', () => {
+    renderCell();
+    const cm = screen.getByTestId('cm');
+    // Collapse
+    fireEvent.keyDown(cm, { key: 'L', ctrlKey: true, shiftKey: true });
+    expect(screen.queryByTestId('cm')).toBeNull();
+  });
+
+  it('keyboard shortcut Ctrl+Shift+R toggles results collapsed', () => {
+    renderCell();
+    const cm = screen.getByTestId('cm');
+    expect(screen.getByTestId('collapsed').textContent).toBe('false');
+    fireEvent.keyDown(cm, { key: 'R', ctrlKey: true, shiftKey: true });
+    expect(screen.getByTestId('collapsed').textContent).toBe('true');
   });
 });

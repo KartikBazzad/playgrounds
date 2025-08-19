@@ -8,10 +8,13 @@ This is a beginner-friendly book with an in-browser DuckDB (WASM) SQL playground
 
 - React + Vite + TypeScript
 - DuckDB running entirely in the browser via `@duckdb/duckdb-wasm`
+- Single shared DuckDB instance/connection across Playground and Web Shell
+- Global query serialization to avoid interleaved execution
 - Book rendered from Markdown in `public/chapters/`
 - Sample dataset in `public/data/people.csv`
 - Extra chapters: Extensions (WASM), Troubleshooting, SQL Cheat Sheet, Case Studies
 - Playground quick actions: Install httpfs, Load Sample, Parquet demo, Reset
+- Web Shell commands: `.help`, `.tables`, `.schema T`, `.extensions`, `.install EXT`, `.load EXT`, `.mode text|table`, `.reset`
 
 ## Develop
 
@@ -35,6 +38,12 @@ Then open the printed URL (default: <http://localhost:5173>).
 - Click "Reset" to drop sample artifacts (people/adults)
 - Use "Share Link" to copy a URL that embeds your SQL in the hash
 - Use "Save as Gist" to create a public GitHub Gist of your SQL
+
+## Web Shell
+
+- Shares the same DuckDB session as the Playground (tables/views/PRAGMAs are visible in both).
+- Commands: `.help`, `.tables`, `.schema T`, `.extensions`, `.install`, `.load`, `.mode text|table`.
+- Use `.reset` to reset the session and reinitialize DuckDB.
 
 ## Chapters
 

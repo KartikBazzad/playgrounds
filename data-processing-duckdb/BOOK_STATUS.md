@@ -1,6 +1,6 @@
 # DuckDB WASM Book & Playground — Project Status
 
-Last updated: 2025-08-17
+Last updated: 2025-08-18
 
 ## Overview
 
@@ -40,6 +40,7 @@ Data helpers:
 - [x] Load Sample (people.csv)
 - [x] Parquet demo (TPCH lineitem)
 - [x] Reset (drops sample tables/views)
+- [x] Upload file (CSV/TSV/Parquet/JSON/NDJSON)
 
 UX:
 
@@ -51,6 +52,15 @@ UX:
 - [x] Persist SQL to localStorage
 - [x] Share Link (URL hash)
 - [x] Save as Gist (GitHub API, token with gist scope)
+
+Recent UX polish:
+
+- [x] Sidebar: bottom-placed collapse/expand toggle with left/right arrows
+- [x] Results panel: collapsible (header left chevrons) with sticky header
+- [x] Results panel: search filter across all columns
+- [x] Results panel: copy actions (JSON, CSV with/without headers)
+- [x] Results panel: simple virtualization for large pages
+- [x] Notebook: removed add-cell icons from headers; added bottom "Add Cell" button
 
 Planned UX:
 
@@ -104,3 +114,18 @@ Planned docs:
 - Day 3–4: Add extensions, troubleshooting, cheat sheet, case studies; polish styles
 - Day 5: Playground UX (snippets, datasets, CSV download, quality report, persistence)
 - Day 6: Sharing (Share Link, Save as Gist), documentation update, status doc
+
+## Changelog
+
+2025-08-18
+
+- Sidebar: move collapse/expand toggle to bottom; use left/right arrow icons
+- ResultsPanel: make collapsible with left-aligned expand/collapse icons
+- ResultsPanel: sticky header (title, toggle, search) while results scroll
+- ResultsPanel: standardized Material Symbols; fixed missing icon names
+- ResultsPanel: search filter, copy JSON/CSV, simple row virtualization
+- Upload: support CSV/TSV via read_csv, Parquet via parquet_scan, JSON/NDJSON via read_json_auto; schema refresh on import
+- Notebook: removed header add-cell icons; added bottom “Add Cell” button in notebook view
+‑ Playground/Shell: confirmed and documented single shared DuckDB instance/connection across both UIs
+‑ Query execution: added global serialization queue to prevent interleaved queries on the shared connection
+‑ Web Shell: added `.reset` command to reset the DuckDB session; updated `.help` output accordingly

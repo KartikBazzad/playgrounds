@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSEO } from '@/lib/useSEO';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -21,6 +22,14 @@ export default function Book() {
   const [active, setActive] = useState(chapters[0].id);
   const [content, setContent] = useState('');
 
+  const activeChapter = chapters.find((c) => c.id === active) || chapters[0];
+  useSEO({
+    title: `${activeChapter.title} – DuckDB Book`,
+    description: `${activeChapter.title}: Learn DuckDB with hands-on examples in the browser.`,
+    image: '/og-image.png',
+    siteName: 'DuckDB Data Processing',
+  });
+
   useEffect(() => {
     (async () => {
       const res = await fetch(`/chapters/${active}.md`);
@@ -30,24 +39,22 @@ export default function Book() {
   }, [active]);
 
   return (
-    <div className="book-grid">
-      <style>{`
-        .book-grid{display:grid;grid-template-columns:260px 1fr;gap:16px}
-        .chapterlist{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px;height:calc(100vh - 80px);overflow:auto}
-        .chapterlist button{width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text);padding:8px 10px;border-radius:8px}
-        .chapterlist button.active,.chapterlist button:hover{background:#0b1220;border-color:var(--border)}
-      `}</style>
-      <aside className="chapterlist">
-        {chapters.map((c) => (
-          <div key={c.id}>
-            <button className={active === c.id ? 'active' : ''} onClick={() => setActive(c.id)}>
-              {c.title}
-            </button>
-          </div>
-        ))}
+    <div className="grid grid-cols-[260px_1fr] gap-4">
+      <aside className="card h-[calc(100vh-80px)] bg-base-100 border border-base-300 overflow-auto">
+        <ul className=" h-full">
+          {chapters.map((c) => (
+            <li key={c.id}>
+              <a className={`${active === c.id ? 'active' : ''} link`} onClick={() => setActive(c.id)}>
+                {c.title}
+              </a>
+            </li>
+          ))}
+        </ul>
       </aside>
-      <article className="card">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <article className="card bg-base-100 border border-base-300 p-3 h-[calc(100vh-80px)] overflow-auto">
+        <div className="prose max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
       </article>
     </div>
   );

@@ -36,7 +36,7 @@ export default function SingleEditor(props: SingleEditorProps) {
           }
         }}
       />
-      <div className="muted">{message}</div>
+      <div className="text-base-content/70 mt-1 text-sm">{message}</div>
       <ResultsPanel
         title="Output"
         columns={columns}

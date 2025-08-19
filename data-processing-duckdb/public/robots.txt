@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Update to your production URL after first deploy
+Sitemap: https://<your-pages-domain>/sitemap.xml
